@@ -1,0 +1,16 @@
+﻿# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editors / IDE
+.vscode/
+.idea/
+
+# Env / secrets (절대 커밋 금지 - API 키 등)
+.env
+.env.*
+*.key
+
+# Logs
+*.log
