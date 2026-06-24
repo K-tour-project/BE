@@ -38,13 +38,13 @@
 
 `users`(사용자·자체인증) · `regions`(지역) · `contents`(작품) · `places`(장소) · **`content_place_mappings`(작품↔장소, 핵심 자산)** · `place_aliases`(매칭 별칭) · `content_translations`(다국어) · `courses`(코스) · `course_places`(경유지) · `favorites`(즐겨찾기) · `search_history`(검색기록) · `api_call_logs`(KTO 호출 입증).
 
-> 컬럼·관계·DDL 전체는 v3 설계서 §3 참조.
+> 컬럼·관계·DDL의 **단일 기준은 코드**(`app/models/`)이며, 설계 결정의 "왜"는 [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md) 참조. (mockup 반영으로 `users`·`courses`·`favorites` 등에 필드 보강됨 — 테이블 수는 12개 유지)
 
 ## 5. 진행 현황 (체크리스트)
 
 - [x] **0. 설계** — v1(Supabase) → v2(적대적 검증·실격리스크 수정) → **v3(FastAPI 확정)**
-- [x] **1. 프로젝트 뼈대 + `/health`** — FastAPI 구조·설정·헬스체크. **서버 구동 검증 완료** ✅ ← *현재 위치*
-- [ ] **2. DB 연결 + Alembic** — PostgreSQL+PostGIS 연결, 12개 테이블 첫 마이그레이션 *(Docker 필요)*
+- [x] **1. 프로젝트 뼈대 + `/health`** — FastAPI 구조·설정·헬스체크. **서버 구동 검증 완료** ✅
+- [ ] **2. DB 연결 + Alembic** — 🔧 *거의 완료*: DB 구동(Docker PostGIS)·12개 모델·mockup 보강 완료. **남음: 첫 마이그레이션 적용**(`alembic upgrade head`) ← *현재 위치*
 - [ ] **3. 회원가입/로그인** — JWT 자체 인증(access/refresh), bcrypt
 - [ ] **4. `place-detail`** — KTO TourAPI 실시간 연동 + `api_call_logs` 입증 *(공모전 합격 핵심)*
 - [ ] **5. 검색·지도 엔드포인트** — contents/places/regions, 자동완성·초성
@@ -87,10 +87,38 @@ uvicorn app.main:app --reload
 
 ## 9. 참고 문서
 
-- **설계서 v3** (현행 기준, FastAPI): `K-tour-backend-design-v3.md`
-- 설계서 v1·v2 (Supabase 기반, 변천 기록 및 적대적 검증 결과)
-- 이전 팀 설계문서(개요·데이터정의·DB설계·API명세)는 새 출발을 위해 제거됨 — git 히스토리(원격 `main` 커밋 `35edf75`)에 보존되어 복구 가능.
+- **본 문서(`PROJECT_REPORT.md`)가 단일 기준** — 로드맵·결정·제약.
+- **[`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md)** — 단계별 구현 일지(무엇을·어떻게·왜).
+- **스키마의 진짜 기준은 코드**: `app/models/` (12개 테이블).
+- 옛 설계문서(개요·데이터정의·DB설계·API명세·Supabase 스키마)는 혼동 방지를 위해 **전부 삭제** — git 커밋 `35edf75`에 보존되어 복구 가능.
+
+## 10. 구현 기록 (단계별 상세)
+
+단계가 진행될 때마다 "무엇을 · 어떻게 구현했는지 · 어떻게 검증했는지"를 여기에 누적 기록한다.
+
+### 1단계 — 프로젝트 뼈대 + `/health` ✅ 완료
+- **구현 내용**
+  - `app/main.py` — FastAPI 인스턴스 생성, 라우터 등록, 루트(`/`) 엔드포인트.
+  - `app/core/config.py` — `pydantic-settings`로 `.env`/환경변수 로딩(`APP_NAME`, `ENVIRONMENT`, `DATABASE_URL`). 기본값을 둬서 `.env` 없이도 구동.
+  - `app/routers/health.py` — `GET /health` → `{"status":"ok"}`.
+  - `app/{services,models,schemas,deps}/` — 다음 단계용 빈 패키지(역할 주석만).
+  - 부가 파일 — `requirements.txt`, `docker-compose.yml`(PostgreSQL+PostGIS), `.env`/`.env.example`, Python `.gitignore`, `README.md`.
+- **검증**: `python -m venv .venv` → `pip install`(fastapi·uvicorn·pydantic-settings) → `uvicorn app.main:app`. 실제 구동 후 `GET /health` → `{"status":"ok"}`, `GET /` 정상, `/docs` 자동 문서 확인. ✅
+- **커밋**: 브랜치 `feat/fastapi-scaffold`, 커밋 `2c8d0f7`.
+
+### 2단계 — DB 연결 + Alembic + 모델 🔧 진행 중
+- **(2-1) DB 연결 토대 — 완료**
+  - `requirements.txt`에 DB 패키지 추가: `sqlalchemy[asyncio]`, `asyncpg`, `alembic`, `geoalchemy2`. (설치 확인: SQLAlchemy 2.0.51 / asyncpg 0.31 / alembic 1.18 / GeoAlchemy2 0.20)
+  - `app/core/db.py` 생성 — 비동기 `engine`, `AsyncSessionLocal`(세션 팩토리), `Base`(모델 부모 클래스), `get_db`(라우터 주입용 의존성).
+  - **검증**: `import app.core.db` + `import app.main` 정상 임포트(DB 미연결 상태에서 코드 유효성만 확인), `DATABASE_URL`이 비밀번호 가린 채 로드됨. ✅
+- **(2-2) DB 인프라 구동 — 완료 ✅** (재시작 후): WSL2 설치+재부팅 → Docker 엔진(Server v29.5.3) → `docker compose up -d`로 PostGIS 컨테이너 `ktour-db` 기동. `pg_isready`·`postgis` 확장 확인.
+- **(2-3) 옛 설계파일 정리 — 완료 ✅**: 상위 폴더 옛 파일 7개 삭제, 단일 기준 = 본 문서.
+- **(2-4) 12개 모델 정의 — 완료 ✅**: `app/models/`를 도메인별 모듈로 작성, 컴플라이언스(§3)를 스키마에 반영. import+`configure_mappers`+12테이블 등록 검증.
+- **(2-5) UI mockup 정합성 보강 — 완료 ✅**: 소셜로그인·다일코스·코스좋아요·채널·추천/인기·촬영회차 필드 추가, 즐겨찾기 중복방지 버그 수정. (인물·리뷰는 보류)
+- **(2-6) 남은 작업**: Alembic 첫 마이그레이션 작성·검토 → `alembic upgrade head`로 12개 테이블 DB 생성.
+
+> 📓 위 (2-2)~(2-5)의 "무엇을·어떻게·왜" 상세는 [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md)에 정리.
 
 ---
 
-*본 보고서는 단계가 진행될 때마다 §5 체크리스트와 현황을 갱신한다.*
+*본 보고서는 단계가 진행될 때마다 §5 체크리스트와 §10 구현 기록을 갱신한다. 상세 구현 일지는 [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md).*

@@ -1,9 +1,14 @@
-# Stage 1: minimum packages to run the server
+# Web framework
 fastapi
 uvicorn[standard]
 pydantic-settings
 
-# (added in later stages - no need to install now)
-# Stage 2 DB:   sqlalchemy[asyncio], asyncpg, alembic, geoalchemy2
+# Stage 2: Database (SQLAlchemy async + PostgreSQL driver + migrations + PostGIS types)
+sqlalchemy[asyncio]
+asyncpg
+alembic
+geoalchemy2
+
+# (added in later stages)
 # Stage 3 auth: passlib[bcrypt], python-jose[cryptography]
 # External API: httpx
