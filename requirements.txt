@@ -1,0 +1,9 @@
+# Stage 1: minimum packages to run the server
+fastapi
+uvicorn[standard]
+pydantic-settings
+
+# (added in later stages - no need to install now)
+# Stage 2 DB:   sqlalchemy[asyncio], asyncpg, alembic, geoalchemy2
+# Stage 3 auth: passlib[bcrypt], python-jose[cryptography]
+# External API: httpx

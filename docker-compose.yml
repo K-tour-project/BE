@@ -1,0 +1,17 @@
+# 2단계에서 사용: PostgreSQL + PostGIS(지오 확장)를 로컬에 띄운다.
+# 실행: docker compose up -d   (Docker Desktop 설치 필요 — 현재 PC엔 아직 없음)
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: ktour-db
+    environment:
+      POSTGRES_USER: ktour
+      POSTGRES_PASSWORD: ktour
+      POSTGRES_DB: ktour
+    ports:
+      - "5432:5432"
+    volumes:
+      - ktour-pgdata:/var/lib/postgresql/data
+
+volumes:
+  ktour-pgdata:

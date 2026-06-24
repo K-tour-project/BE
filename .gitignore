@@ -1,4 +1,4 @@
-﻿# OS
+# OS
 Thumbs.db
 Desktop.ini
 .DS_Store
@@ -10,7 +10,28 @@ Desktop.ini
 # Env / secrets (절대 커밋 금지 - API 키 등)
 .env
 .env.*
+!.env.example
 *.key
 
 # Logs
 *.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Test / cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
