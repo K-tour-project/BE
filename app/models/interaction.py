@@ -37,7 +37,7 @@ class Favorite(Base, CreatedAtMixin):
         ForeignKey("courses.course_id", ondelete="CASCADE")
     )  # 코스 '좋아요'(화면10의 좋아요 탭)
 
-    user: Mapped["User"] = relationship("User", back_populates="favorites")  # noqa: F821
+    user: Mapped["User"] = relationship("User")  # noqa: F821
 
     __table_args__ = (
         # 작품/장소/코스 중 정확히 하나만 채워져야 함
@@ -69,7 +69,7 @@ class SearchHistory(Base, CreatedAtMixin):
     search_type: Mapped[str | None] = mapped_column(String(20))  # content / place / region
     result_count: Mapped[int | None] = mapped_column(Integer)
 
-    user: Mapped["User"] = relationship("User", back_populates="searches")  # noqa: F821
+    user: Mapped["User"] = relationship("User")  # noqa: F821
 
     __table_args__ = (
         Index("ix_search_history_user_created", "user_id", "created_at"),

@@ -38,13 +38,13 @@
 
 `users`(사용자·자체인증) · `regions`(지역) · `contents`(작품) · `places`(장소) · **`content_place_mappings`(작품↔장소, 핵심 자산)** · `place_aliases`(매칭 별칭) · `content_translations`(다국어) · `courses`(코스) · `course_places`(경유지) · `favorites`(즐겨찾기) · `search_history`(검색기록) · `api_call_logs`(KTO 호출 입증).
 
-> 컬럼·관계·DDL의 **단일 기준은 코드**(`app/models/`)이며, 설계 결정의 "왜"는 [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md) 참조. (mockup 반영으로 `users`·`courses`·`favorites` 등에 필드 보강됨 — 테이블 수는 12개 유지)
+> 스키마 **단일 기준은 코드**(`app/models/`)·[`erd.dbml`](./erd.dbml). 현재 **활성 7개**(최소 컬럼: users·regions·contents·places·content_place_mappings·courses·course_places)만 마이그레이션됨. 나머지 5개(content_translations·place_aliases·favorites·search_history·**api_call_logs⚠️**)와 부가 컬럼은 해당 기능 단계에서 추가. 설계 "왜"는 [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md).
 
 ## 5. 진행 현황 (체크리스트)
 
 - [x] **0. 설계** — v1(Supabase) → v2(적대적 검증·실격리스크 수정) → **v3(FastAPI 확정)**
 - [x] **1. 프로젝트 뼈대 + `/health`** — FastAPI 구조·설정·헬스체크. **서버 구동 검증 완료** ✅
-- [ ] **2. DB 연결 + Alembic** — 🔧 *거의 완료*: DB 구동(Docker PostGIS)·12개 모델·mockup 보강 완료. **남음: 첫 마이그레이션 적용**(`alembic upgrade head`) ← *현재 위치*
+- [x] **2. DB 연결 + Alembic** — ✅ **완료**: 최소 **7개 테이블** 모델 + 마이그레이션 `439ec7cb835f` 적용·검증. 상세 [`PROGRESS.md`](./PROGRESS.md)
 - [ ] **3. 회원가입/로그인** — JWT 자체 인증(access/refresh), bcrypt
 - [ ] **4. `place-detail`** — KTO TourAPI 실시간 연동 + `api_call_logs` 입증 *(공모전 합격 핵심)*
 - [ ] **5. 검색·지도 엔드포인트** — contents/places/regions, 자동완성·초성

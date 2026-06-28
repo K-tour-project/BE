@@ -1,0 +1,87 @@
+// =====================================================================
+// K-tour BE ERD — 최소 7개 테이블 (실제 DB와 일치, 마이그레이션 439ec7cb835f)
+// https://dbdiagram.io/d 에 그대로 붙여넣기
+// 컬럼은 "꼭 필요한 것만". 부가 컬럼/지연 테이블은 해당 기능 단계에서 추가.
+// =====================================================================
+
+Enum content_type {
+  movie
+  drama
+  show
+}
+Enum auth_provider {
+  google
+  kakao
+}
+
+Table users {
+  user_id bigint [pk, increment]
+  nickname varchar(50) [not null]
+  auth_provider auth_provider [not null]
+  provider_user_id varchar(255) [not null]
+  indexes {
+    (auth_provider, provider_user_id) [unique]
+  }
+  Note: '사용자 (구글·카카오 로그인)'
+}
+
+Table regions {
+  region_id bigint [pk, increment]
+  area_code varchar(10) [not null]
+  name varchar(100) [not null]
+  centroid "geography(Point,4326)" [null]
+  Note: '지역코드 (지역 검색용 시드)'
+}
+
+Table contents {
+  content_id bigint [pk, increment]
+  content_type content_type [not null]
+  title_ko varchar(200) [not null]
+  poster_url text [null]
+  Note: '작품 (영화·드라마)'
+}
+
+Table places {
+  place_id bigint [pk, increment]
+  name varchar(200) [not null]
+  geom "geography(Point,4326)" [null]
+  region_id bigint [null]
+  tour_content_id varchar(20) [null]
+  Note: '장소 (좌표·TourAPI 연결)'
+}
+
+Table content_place_mappings {
+  mapping_id bigint [pk, increment]
+  content_id bigint [not null]
+  place_id bigint [not null]
+  indexes {
+    (content_id, place_id) [unique]
+  }
+  Note: '★핵심 자산★ 작품-장소 연결'
+}
+
+Table courses {
+  course_id bigint [pk, increment]
+  user_id bigint [not null]
+  title varchar(200) [not null]
+  created_at timestamptz [not null, default: `now()`]
+  Note: '사용자 저장 코스'
+}
+
+Table course_places {
+  course_place_id bigint [pk, increment]
+  course_id bigint [not null]
+  place_id bigint [not null]
+  visit_order integer [not null]
+  indexes {
+    (course_id, visit_order) [unique]
+  }
+  Note: '코스 경유지(순서)'
+}
+
+Ref: courses.user_id > users.user_id [delete: cascade]
+Ref: places.region_id > regions.region_id [delete: set null]
+Ref: content_place_mappings.content_id > contents.content_id [delete: cascade]
+Ref: content_place_mappings.place_id > places.place_id [delete: cascade]
+Ref: course_places.course_id > courses.course_id [delete: cascade]
+Ref: course_places.place_id > places.place_id [delete: restrict]

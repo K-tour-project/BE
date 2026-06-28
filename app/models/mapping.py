@@ -1,29 +1,17 @@
-"""content_place_mappings — 작품↔장소 (M:N). 이 프로젝트의 ★핵심 자산★.
+"""content_place_mappings — 작품↔장소 연결 (★핵심 자산★). 최소 컬럼.
 
-TourAPI엔 '작품-촬영지' 매핑이 없다 → 우리가 직접 큐레이션한다.
-- relation_type: 관계를 6종으로 분류
-- relevance_reason: 추천 이유(앱 상세화면에 노출)
-- confidence: 검증 수준(verified/likely/inferred)
+관계유형·촬영회차·추천이유·검증수준 등 큐레이션 상세는 그 기능 붙일 때 추가한다.
+TourAPI엔 이 연결이 없어 우리가 직접 큐레이션 = 이 앱의 차별점.
 """
 from __future__ import annotations
 
-from sqlalchemy import (
-    BigInteger,
-    Enum as SAEnum,
-    ForeignKey,
-    Index,
-    String,
-    Text,
-    UniqueConstraint,
-    text,
-)
+from sqlalchemy import BigInteger, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.common import Confidence, RelationType, TimestampMixin
 
 
-class ContentPlaceMapping(Base, TimestampMixin):
+class ContentPlaceMapping(Base):
     __tablename__ = "content_place_mappings"
 
     mapping_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -33,24 +21,10 @@ class ContentPlaceMapping(Base, TimestampMixin):
     place_id: Mapped[int] = mapped_column(
         ForeignKey("places.place_id", ondelete="CASCADE"), nullable=False
     )
-    relation_type: Mapped[RelationType] = mapped_column(
-        SAEnum(RelationType, name="relation_type"), nullable=False
-    )
-    episode: Mapped[str | None] = mapped_column(String(50))  # 촬영회차(예: "16화")
-    scene_description: Mapped[str | None] = mapped_column(Text)  # 촬영 장면/관련 설명
-    relevance_reason: Mapped[str | None] = mapped_column(Text)  # 추천 이유(노출)
-    confidence: Mapped[Confidence] = mapped_column(
-        SAEnum(Confidence, name="confidence_level"),
-        server_default=text("'inferred'"),
-        nullable=False,
-    )
-    source_url: Mapped[str | None] = mapped_column(Text)
 
     content: Mapped["Content"] = relationship("Content", back_populates="mappings")  # noqa: F821
     place: Mapped["Place"] = relationship("Place", back_populates="mappings")  # noqa: F821
 
     __table_args__ = (
         UniqueConstraint("content_id", "place_id", name="uq_cpm_content_place"),
-        Index("ix_cpm_content_id", "content_id"),
-        Index("ix_cpm_place_id", "place_id"),
     )

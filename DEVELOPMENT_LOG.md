@@ -86,7 +86,20 @@
 
 ---
 
-## 다음 단계 (2단계 마무리)
-1. **Alembic 초기화** — async 템플릿으로 `alembic/`·`alembic.ini` 생성 (완료).
-2. **첫 마이그레이션 작성** — autogenerate 후 **수동 보정**: `CREATE EXTENSION postgis/pg_trgm`, enum, trgm GIN 인덱스, 공간 인덱스, `nulls_not_distinct` 확인. *(적용 전 검토)*
-3. **`alembic upgrade head`** → 실제 DB에 12개 테이블 생성·검증.
+## 2단계 작업 ⑤ — Alembic + 최소 컬럼 전환 + 마이그레이션 적용 ✅
+
+| 구분 | 내용 |
+|---|---|
+| **무엇** | 7개 테이블을 **꼭 필요한 컬럼만**(테이블당 3~5개)으로 줄여 실제 DB에 생성 |
+| **어떻게** | ① Alembic async `env.py` + geoalchemy2 헬퍼 + **`include_name` 필터**(PostGIS tiger/topology 시스템 테이블 DROP 방지) ② 유저 플로우 기준 모델을 최소 컬럼으로 재작성(부가 컬럼·enum 3종 제거) ③ autogenerate → `CREATE EXTENSION postgis` + downgrade enum 정리 보정 ④ `alembic upgrade head` |
+| **왜 최소화** | 사용자 요청 "꼭 필요한 것만". 컬럼은 나중에 1줄 마이그레이션으로 추가 가능하므로 부담 적음. 로그인은 구글·카카오만(email/비번 제외), 검색 trgm 인덱스는 나중에. |
+| **검증** | `\dt`로 public에 7개 테이블 확인, `places`는 `place_id·name·geom(geography)·region_id·tour_content_id` + GIST 인덱스, enum `content_type`·`auth_provider(google,kakao)` 확인. 마이그레이션 리비전 `439ec7cb835f (head)`. ✅ |
+
+### 트러블슈팅 기록
+- **asyncpg `Illegal byte sequence`**: 한글 홈경로(`C:\Users\김은서`)의 기본 SSL 인증서 로딩 실패 → `.env`의 `DATABASE_URL`에 `?ssl=disable` 추가(로컬 Docker DB라 SSL 불필요)로 해결.
+- **PostGIS 시스템 테이블 DROP 시도**: 이미지에 내장된 tiger 지오코더·topology 테이블을 Alembic이 삭제하려 함 → `env.py`에 우리 메타데이터 테이블만 비교하는 `include_name` 필터 추가로 해결.
+
+---
+
+## ✅ 2단계 종료 — 다음은 3단계(회원가입/로그인, 구글·카카오 소셜)
+실시간 진행 현황은 [`PROGRESS.md`](./PROGRESS.md) 참조.
