@@ -1,6 +1,6 @@
 """환경설정. .env 파일 또는 환경변수에서 값을 읽는다.
 
-코드에 비밀값(DB 비번·API 키)을 직접 박지 않고 여기로 모은다.
+코드에 비밀값(DB 비번·API 키·서명 키)을 직접 박지 않고 여기로 모은다.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,9 +13,38 @@ class Settings(BaseSettings):
     APP_NAME: str = "K-tour BE"
     ENVIRONMENT: str = "local"
 
-    # --- 아래는 다음 단계에서 사용 (지금은 기본값만 있어도 서버가 뜬다) ---
+    # --- 아래는 각 단계에서 사용 (기본값이 있어 값 없이도 서버가 뜬다) ---
     # 2단계(DB): PostgreSQL 연결 문자열
     DATABASE_URL: str = "postgresql+asyncpg://ktour:ktour@localhost:5432/ktour"
+
+    # 3단계(인증) — 우리 서버가 발급하는 JWT
+    # SECRET_KEY: JWT 서명 키. 운영에선 반드시 .env로 교체(절대 노출 금지). 기본값은 개발용.
+    SECRET_KEY: str = "dev-only-change-me-in-env"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 14  # 14일 (모바일 앱 편의)
+
+    # 3단계(소셜 검증) — 선택값
+    # GOOGLE_CLIENT_ID: 구글 ID 토큰의 aud(수신 대상)가 우리 앱이 맞는지 검증용.
+    #   비워두면 aud 검증을 생략한다(개발 단계 허용, 운영에선 채우는 걸 권장).
+    GOOGLE_CLIENT_ID: str = ""
+
+    # 4단계(TourAPI) — 한국관광공사 오픈API
+    # ⚠️ TOUR_API_KEY는 data.go.kr에서 발급받은 **일반 인증키(Decoding)**를 .env에만 넣는다.
+    #    앱(APK)이나 git에 절대 넣지 않는다 — 노출 시 공모전 실격 사유이며 키는 2년 유효.
+    #    비어 있으면 TourAPI 호출부가 명확한 에러를 내고 나머지 기능은 정상 동작한다.
+    TOUR_API_KEY: str = ""
+    # 신청 서비스: '한국관광공사_국문 관광정보 서비스_GW' (data.go.kr/data/15101578)
+    TOUR_API_BASE: str = "http://apis.data.go.kr/B551011/KorService2"
+    # 신청 서비스: '한국관광공사_관광사진 정보_GW' (data.go.kr/data/15101914)
+    TOUR_PHOTO_API_BASE: str = "http://apis.data.go.kr/B551011/PhotoGalleryService2"
+    # 공사 요구 식별자(모든 요청에 붙는다)
+    TOUR_API_APP_NAME: str = "EveryTrip"
+    TOUR_API_TIMEOUT: float = 10.0
+
+    @property
+    def tour_api_ready(self) -> bool:
+        """TourAPI 키가 꽂혀 있는지. 라우터·스크립트에서 사전 확인용."""
+        return bool(self.TOUR_API_KEY.strip())
 
 
 # 앱 어디서나 `from app.core.config import settings` 로 가져다 쓴다.

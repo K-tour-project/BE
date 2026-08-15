@@ -9,6 +9,7 @@ asyncpg
 alembic
 geoalchemy2
 
-# (added in later stages)
-# Stage 3 auth: passlib[bcrypt], python-jose[cryptography]
-# External API: httpx
+# Stage 3: Auth (자체 JWT 발급/검증) + 소셜 토큰 검증·외부 API용 HTTP 클라이언트
+python-jose[cryptography]
+httpx
+# ※ 소셜 로그인 전용이라 비밀번호 해싱(passlib/bcrypt)은 쓰지 않음.
