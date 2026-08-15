@@ -1,11 +1,15 @@
-"""content_place_mappings — 작품↔장소 연결 (★핵심 자산★). 최소 컬럼.
+"""content_place_mappings — 작품↔장소 연결 (★핵심 자산★).
 
-관계유형·촬영회차·추천이유·검증수준 등 큐레이션 상세는 그 기능 붙일 때 추가한다.
-TourAPI엔 이 연결이 없어 우리가 직접 큐레이션 = 이 앱의 차별점.
+TourAPI엔 "어떤 작품이 어디서 촬영됐는지"가 없다. 이 연결이 앱의 차별점이고,
+1차 데이터는 `data/data.csv`(KMDb 촬영지 원본) 13,761행이 그대로 여기 들어간다.
+
+`scene_description`(장면설명)·`characters`(등장인물)는 촬영지 '맥락'이라 이 연결에만
+의미가 있다 — 같은 장소라도 작품마다 다른 장면이므로 places가 아니라 여기에 둔다.
+(CSV에선 각각 74.9% / 95.2%가 비어 있어 nullable.)
 """
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, ForeignKey, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -21,6 +25,15 @@ class ContentPlaceMapping(Base):
     place_id: Mapped[int] = mapped_column(
         ForeignKey("places.place_id", ondelete="CASCADE"), nullable=False
     )
+
+    # KMDb 사건일련번호(예: K17686-A-011). CSV 13,761행 전부 고유해 재시드 시 중복을 막는 자연키.
+    kmdb_case_id: Mapped[str | None] = mapped_column(String(40), unique=True)
+
+    # ── 촬영지 맥락 (큐레이션) ──
+    scene_description: Mapped[str | None] = mapped_column(Text)  # 장면설명
+    characters: Mapped[str | None] = mapped_column(String(300))  # 등장인물
+    # 드라마 확장 대비 — "도깨비 16화" 같은 촬영회차. 영화 시드에선 전부 NULL.
+    episode: Mapped[str | None] = mapped_column(String(50))
 
     content: Mapped["Content"] = relationship("Content", back_populates="mappings")  # noqa: F821
     place: Mapped["Place"] = relationship("Place", back_populates="mappings")  # noqa: F821
