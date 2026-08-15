@@ -72,7 +72,61 @@
 
 > 흐름: 팀원이 NLU로 문자열 추출 → (1)(2)로 id 해소 → (3)에 투입. 요청/응답 상세는 v3 설계서 §4 참조.
 
-## 8. 실행 방법
+## 8. 백엔드 설계 — API·흐름
+
+> 현행 **7테이블 · 소셜 로그인** 기준의 백엔드 청사진. **엔드포인트·데이터 흐름** 중심이며, 토큰 세부·호출 입증 방식 등 **구현 세부는 각 단계에서 확정**(§8.6)한다.
+
+### 8.1 레이어 & 요청 흐름
+요청은 `routers`(HTTP 입출구) → `services`(로직·외부 API 호출) → `models`/`schemas`(DB·검증) 순으로 흐르고, `core`(설정·DB엔진·인증)·`deps`(`get_current_user`)가 공용으로 쓰인다. DB·외부호출은 모두 async.
+
+### 8.2 API 카탈로그 (현행 7테이블 기준)
+
+| 도메인 | 메서드·경로 | 역할 | 인증 | 단계 |
+|---|---|---|---|---|
+| 메타 | `GET /health` · `GET /` | 헬스체크 · 루트/문서 안내 | 공개 | 1 ✅ |
+| 인증 | `POST /auth/google` · `POST /auth/kakao` | 소셜 토큰 검증 → 우리 서버 JWT 발급 | 공개 | 3 |
+| 인증 | `GET /auth/me` | 내 정보 | 필수 | 3 |
+| 검색·리졸브 | `GET /contents/search?q=` | 작품 제목 검색(부분일치) | 공개 | 5 |
+| 검색·리졸브 | `POST /contents/resolve` ※§7 | 제목 텍스트 → content 후보 랭킹 | 공개 | 5 |
+| 검색·리졸브 | `GET /regions/resolve?name=` ※§7 | 지역명 → region_id·중심좌표 | 공개 | 5 |
+| 검색·리졸브 | `GET /regions` | 지역 목록 | 공개 | 5 |
+| 작품·촬영지 | `GET /contents/{id}` | 작품 정보(+poster) | 공개 | 5 |
+| 작품·촬영지 | `GET /contents/{id}/places` | 그 작품의 촬영지 목록(좌표·poster) | 공개 | 5 |
+| 지역·지도 | `GET /regions/{id}/places` | 지역 내 촬영지(지도 마커) | 공개 | 5 |
+| 지역·지도 | `GET /places?near={region_id}&radius_km=` | 반경(≤20km) 내 장소(PostGIS) | 공개 | 5 |
+| 장소 상세 ⚠️ | `GET /places/{id}` | 우리 좌표 + **TourAPI 실시간** 상세(주소·운영시간·이미지 URL) | 공개 | 4 |
+| 코스 | `POST /courses/recommend` ※§7 | place_ids/region_code+조건 → 최적 방문순서(저장X) | 공개 | 6 |
+| 코스 | `POST /courses` · `GET /courses` · `GET /courses/{id}` · `DELETE /courses/{id}` | 코스 저장·목록·상세·삭제 | 필수 | 6 |
+
+> 핵심 자산 `content_place_mappings`가 "작품→촬영지"와 "지역→그 장소가 나온 작품 포스터"를 잇는 중심축으로 검색·지도 응답에 공통으로 들어간다.
+
+### 8.3 요청/응답 핵심 (요약)
+- `POST /contents/resolve` ← `{ "query": "도깨비" }` → `{ "candidates": [{ content_id, title_ko, content_type, poster_url, score }] }`
+- `GET /regions/resolve?name=강릉` → `{ region_id, area_code, name, centroid: { lat, lng } }`
+- `GET /places/{id}` → `{ place_id, name, location: {lat,lng}, detail: { …TourAPI 실시간… } }` — `detail`은 매 호출 실시간 조회, **저장하지 않음**
+- `POST /courses/recommend` ← `{ place_ids:[…], region_code?, options:{…} }` → `{ order:[{ visit_order, place_id }], legs:[…] }` — **raw GPS 입력 금지**
+- 인증 응답 → `{ access_token, token_type:"bearer", user: { user_id, nickname, auth_provider } }`
+
+### 8.4 외부 연동
+- **KTO TourAPI** (장소 상세 백본): 실시간 호출만, 응답 **무캐싱**, `serviceKey`는 서버 전용(.env), 호출 **입증 로깅**, 금지 operation(산악관광·`areaCode2`·`categoryCode2`) 미사용. (§3)
+- **포스터**: KMDb/TMDB의 이미지 **URL만** `contents.poster_url`에 저장(다운로드 금지).
+- **지도·동선**: Kakao Map(표시) · Kakao Mobility/ODsay(코스 동선 보강).
+
+### 8.5 횡단 설계 원칙
+JSON(snake_case) · `Authorization: Bearer <JWT>` · 표준 에러 `{ "detail": "…" }` · 목록 페이지네이션(`limit`/`offset` + `total`) · **raw GPS 미수신**(입력은 `place_id`/`region_code`, 위치조회 반경 ≤20km) · TourAPI 응답 **무캐싱**.
+
+### 8.6 구현 단계에서 확정할 항목 (지금 결정하지 않음)
+- 인증 토큰 상세(access만 vs access+refresh) — 3단계
+- TourAPI 실시간 호출 **입증 방식**(전용 로그 테이블 추가 시점·형태) — 4단계
+- 검색 가속(부분일치 ILIKE → trgm 인덱스) — 5단계
+- 코스 동선 거리원(PostGIS 직선거리 → 라우팅 API) — 6단계
+- 지연 모델(즐겨찾기·검색기록·다국어 등) 활성화 — 해당 기능 단계
+
+> ℹ️ §2(인증 표기)·§4(테이블 수)에 옛 기준(자체 JWT/bcrypt·"12 테이블")이 남아 있다. 현행은 **소셜 OAuth·7테이블**이며, 다음 **문서 정리 단계**에서 일치시킨다.
+
+---
+
+## 9. 실행 방법
 
 ```powershell
 cd "D:\workspace\2026 tourism data contest\BE"
@@ -85,14 +139,14 @@ uvicorn app.main:app --reload
 - 헬스체크: http://127.0.0.1:8000/health → `{"status":"ok"}`
 - 자동 API 문서: http://127.0.0.1:8000/docs
 
-## 9. 참고 문서
+## 10. 참고 문서
 
 - **본 문서(`PROJECT_REPORT.md`)가 단일 기준** — 로드맵·결정·제약.
 - **[`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md)** — 단계별 구현 일지(무엇을·어떻게·왜).
 - **스키마의 진짜 기준은 코드**: `app/models/` (12개 테이블).
 - 옛 설계문서(개요·데이터정의·DB설계·API명세·Supabase 스키마)는 혼동 방지를 위해 **전부 삭제** — git 커밋 `35edf75`에 보존되어 복구 가능.
 
-## 10. 구현 기록 (단계별 상세)
+## 11. 구현 기록 (단계별 상세)
 
 단계가 진행될 때마다 "무엇을 · 어떻게 구현했는지 · 어떻게 검증했는지"를 여기에 누적 기록한다.
 
@@ -121,4 +175,4 @@ uvicorn app.main:app --reload
 
 ---
 
-*본 보고서는 단계가 진행될 때마다 §5 체크리스트와 §10 구현 기록을 갱신한다. 상세 구현 일지는 [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md).*
+*본 보고서는 단계가 진행될 때마다 §5 체크리스트와 §11 구현 기록을 갱신한다. 상세 구현 일지는 [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md).*

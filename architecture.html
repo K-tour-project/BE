@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-tour 백엔드 아키텍처 설계</title>
+<style>
+  :root{
+    --blue:#2563eb; --blue-d:#1e40af; --indigo:#4f46e5;
+    --bg:#f1f5f9; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
+    --green:#16a34a; --green-bg:#dcfce7; --amber:#d97706; --amber-bg:#fef3c7;
+    --red:#dc2626; --pink-bg:#fce7f3; --sky-bg:#e0f2fe;
+    --shadow:0 1px 3px rgba(15,23,42,.08),0 8px 24px rgba(15,23,42,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',
+       -apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--ink);
+       line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+
+  /* 상단 네비 */
+  nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);
+      backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 20px}
+  nav b{color:var(--blue);font-size:15px;margin-right:8px}
+  nav a{font-size:12.5px;color:var(--muted);text-decoration:none;padding:5px 9px;border-radius:7px}
+  nav a:hover{background:var(--sky-bg);color:var(--blue-d)}
+
+  /* 헤더 */
+  header{background:linear-gradient(135deg,var(--indigo),var(--blue) 60%,#0ea5e9);
+         color:#fff;padding:54px 0 46px}
+  header .wrap{text-align:center}
+  .kicker{display:inline-block;background:rgba(255,255,255,.18);padding:5px 14px;
+          border-radius:999px;font-size:13px;letter-spacing:.3px;margin-bottom:16px}
+  header h1{margin:0 0 8px;font-size:38px;font-weight:800;letter-spacing:-1px}
+  header p{margin:0;font-size:17px;opacity:.92}
+  .badge-row{margin-top:22px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .badge-row span{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);
+          padding:6px 13px;border-radius:999px;font-size:13px}
+
+  section{padding:40px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:25px;font-weight:800;margin:0 0 4px;letter-spacing:-.5px}
+  h2 .n{color:var(--blue);font-size:15px;font-weight:700;display:block;margin-bottom:2px}
+  .lead{color:var(--muted);margin:0 0 22px;font-size:15px}
+
+  /* 카드 그리드 */
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:760px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:18px 20px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 6px;font-size:16px}
+  .card p{margin:0;color:var(--muted);font-size:13.5px}
+
+  /* 통계 카드 */
+  .stat{text-align:center}
+  .stat .num{font-size:34px;font-weight:800;color:var(--blue);line-height:1.1}
+  .stat .lab{font-size:13px;color:var(--muted);margin-top:4px}
+
+  /* 강조 박스 */
+  .callout{border-radius:14px;padding:18px 20px;margin:6px 0;border:1px solid}
+  .callout.star{background:linear-gradient(135deg,#fdf2f8,#eef2ff);border-color:#e9d5ff}
+  .callout.warn{background:var(--amber-bg);border-color:#fcd34d}
+  .callout.info{background:var(--sky-bg);border-color:#bae6fd}
+  .callout .t{font-weight:800;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+
+  /* 표 */
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;
+        overflow:hidden;box-shadow:var(--shadow);font-size:13.6px}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#f8fafc;font-weight:700;font-size:13px;color:#334155}
+  tr:last-child td{border-bottom:none}
+  td code,p code,li code{background:#eef2ff;color:var(--blue-d);padding:1px 6px;
+        border-radius:5px;font-size:12.5px;font-family:'JetBrains Mono',Consolas,monospace}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700}
+  .pk{background:#fef9c3;color:#854d0e}
+  .fk{background:#e0e7ff;color:#3730a3}
+  .en{background:#dcfce7;color:#166534}
+  .geo{background:#cffafe;color:#155e75}
+
+  /* 아키텍처 다이어그램 */
+  .arch{display:flex;flex-direction:column;align-items:center;gap:0}
+  .layer{width:100%;display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .node{background:var(--card);border:2px solid var(--line);border-radius:14px;
+        padding:14px 18px;min-width:180px;text-align:center;box-shadow:var(--shadow)}
+  .node .ico{font-size:22px}
+  .node b{display:block;margin-top:4px}
+  .node small{color:var(--muted);font-size:12px}
+  .node.client{border-color:#93c5fd;background:#eff6ff}
+  .node.api{border-color:var(--blue);background:#dbeafe}
+  .node.db{border-color:#86efac;background:#f0fdf4}
+  .node.ext{border-color:#fcd34d;background:#fffbeb}
+  .node.team{border-color:#f0abfc;background:#fdf4ff}
+  .arrow{font-size:24px;color:var(--blue);margin:4px 0;font-weight:800}
+  .arrow small{display:block;font-size:11px;color:var(--muted);font-weight:400}
+
+  /* 흐름 단계 */
+  ol.flow{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:10px}
+  ol.flow li{counter-increment:s;background:var(--card);border:1px solid var(--line);
+        border-radius:12px;padding:13px 16px 13px 52px;position:relative;box-shadow:var(--shadow)}
+  ol.flow li::before{content:counter(s);position:absolute;left:14px;top:50%;
+        transform:translateY(-50%);width:26px;height:26px;background:var(--blue);color:#fff;
+        border-radius:50%;display:flex;align-items:center;justify-content:center;
+        font-weight:800;font-size:13px}
+  ol.flow b{color:var(--blue-d)}
+
+  /* ERD 엔티티 카드 */
+  .erd{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:760px){.erd{grid-template-columns:1fr}}
+  .ent{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  .ent.hl{border:2px solid var(--indigo);box-shadow:0 0 0 4px #eef2ff}
+  .ent .head{background:#1e293b;color:#fff;padding:9px 13px;font-weight:700;font-size:14px;
+        display:flex;justify-content:space-between;align-items:center}
+  .ent.hl .head{background:linear-gradient(135deg,var(--indigo),var(--blue))}
+  .ent .head .tag{font-size:10.5px;background:rgba(255,255,255,.22);padding:2px 7px;border-radius:6px;font-weight:600}
+  .ent ul{list-style:none;margin:0;padding:6px 0}
+  .ent li{padding:5px 13px;font-size:12.6px;display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #f1f5f9}
+  .ent li:last-child{border-bottom:none}
+  .ent li .c{font-family:'JetBrains Mono',Consolas,monospace;color:#334155}
+
+  /* 타임라인 */
+  .road{position:relative;padding-left:26px}
+  .road::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;background:var(--line)}
+  .step{position:relative;padding:9px 0 9px 18px}
+  .step::before{content:"";position:absolute;left:-23px;top:14px;width:14px;height:14px;
+        border-radius:50%;background:#fff;border:3px solid var(--line)}
+  .step.done::before{background:var(--green);border-color:var(--green)}
+  .step.now::before{background:var(--blue);border-color:var(--blue);box-shadow:0 0 0 4px #dbeafe}
+  .step b{font-size:14.5px}
+  .step .st{font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;margin-left:6px}
+  .st.d{background:var(--green-bg);color:#166534}
+  .st.n{background:#dbeafe;color:#1e40af}
+  .st.w{background:#f1f5f9;color:#64748b}
+  .step p{margin:2px 0 0;color:var(--muted);font-size:12.8px}
+
+  .progress{height:12px;background:var(--line);border-radius:999px;overflow:hidden;margin:6px 0 20px}
+  .progress i{display:block;height:100%;width:30%;background:linear-gradient(90deg,var(--green),#22c55e)}
+
+  /* 용어 */
+  .term{border-left:4px solid var(--blue);padding-left:14px}
+  .term dt{font-weight:800;color:var(--blue-d)}
+  .term dd{margin:0 0 14px;color:#334155;font-size:13.6px}
+
+  footer{padding:28px 0;text-align:center;color:var(--muted);font-size:12.5px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <b>K-tour BE</b>
+  <a href="#overview">개요</a>
+  <a href="#concept">핵심컨셉</a>
+  <a href="#stack">기술스택</a>
+  <a href="#arch">아키텍처</a>
+  <a href="#flow">요청흐름</a>
+  <a href="#erd">데이터모델</a>
+  <a href="#rules">공모전제약</a>
+  <a href="#road">로드맵</a>
+  <a href="#glossary">용어사전</a>
+</div></nav>
+
+<header><div class="wrap">
+  <span class="kicker">🎬 신입 개발자를 위한 백엔드 설계 설명서</span>
+  <h1>K-tour 백엔드 아키텍처</h1>
+  <p>영화·드라마 촬영지 기반 관광 코스 앱 <b>'Every Trip'</b></p>
+  <div class="badge-row">
+    <span>2026 한국관광공사 공모전</span>
+    <span>FastAPI + PostgreSQL/PostGIS</span>
+    <span>1차 마감 2026.09.21</span>
+  </div>
+</div></header>
+
+<!-- 한눈에 -->
+<section><div class="wrap">
+  <div class="grid g4">
+    <div class="card stat"><div class="num">7</div><div class="lab">DB 테이블</div></div>
+    <div class="card stat"><div class="num">5</div><div class="lab">기술 스택</div></div>
+    <div class="card stat"><div class="num">3 / 10</div><div class="lab">완료 단계 (0~9)</div></div>
+    <div class="card stat"><div class="num">~12주</div><div class="lab">1차 마감까지</div></div>
+  </div>
+</div></section>
+
+<!-- 개요 -->
+<section id="overview"><div class="wrap">
+  <h2><span class="n">01 PROJECT</span>프로젝트 개요</h2>
+  <p class="lead">백엔드가 무엇을 하는 서버인지, 사용자는 어떻게 쓰는지.</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3>🖥️ 백엔드 한 줄 정의</h3>
+      <p>"어떤 작품이 <b>어디서 촬영됐는지</b>" 데이터를 관리하고, 그걸로 <b>검색·지도·코스 추천</b>을 제공하는 서버.</p>
+    </div>
+    <div class="card">
+      <h3>📱 사용자 흐름</h3>
+      <p>작품/지역 검색 → 지도에 촬영지 마커 → 장소 여러 개 선택 → 관광 동선 추천 → 코스 저장. (챗봇은 팀원 담당)</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- 핵심 컨셉 -->
+<section id="concept"><div class="wrap">
+  <h2><span class="n">02 WHY</span>핵심 컨셉 — 왜 이렇게 설계했나</h2>
+  <p class="lead">이 한 가지가 설계 전체의 출발점이에요.</p>
+  <div class="callout star">
+    <div class="t">⭐ TourAPI엔 "작품 ↔ 촬영지" 연결이 없다</div>
+    한국관광공사 <b>TourAPI</b>는 관광지 정보(좌표·주소)는 주지만, <i>"도깨비가 주문진 방파제에서 촬영됨"</i> 같은
+    <b>작품-장소 연결 데이터는 없습니다.</b> 그래서 그 연결을 <b>우리가 직접 큐레이션해서 DB에 만드는 것</b>이
+    이 앱의 차별점이자 데이터베이스의 심장(<code>content_place_mappings</code> 테이블)입니다.
+  </div>
+</div></section>
+
+<!-- 기술 스택 -->
+<section id="stack"><div class="wrap">
+  <h2><span class="n">03 STACK</span>기술 스택 (신입용 한 줄 설명)</h2>
+  <p class="lead">각 도구가 무슨 역할인지 쉬운 말로.</p>
+  <div class="grid g3">
+    <div class="card"><h3>⚡ FastAPI</h3><p>파이썬 <b>웹 프레임워크</b>. 요청을 받아 응답을 돌려주는 서버를 빠르게 만듦. 비동기에 강하고 API 문서가 자동 생성됨.</p></div>
+    <div class="card"><h3>🐘 PostgreSQL + PostGIS</h3><p>데이터를 표 형태로 저장하는 <b>관계형 DB</b> + 지도 좌표·거리·반경 계산을 해주는 <b>공간 확장(PostGIS)</b>.</p></div>
+    <div class="card"><h3>🔗 SQLAlchemy (async)</h3><p><b>ORM</b> — 파이썬 클래스(객체)와 DB 테이블을 자동으로 연결. SQL을 직접 안 짜도 파이썬으로 DB를 다룸.</p></div>
+    <div class="card"><h3>🧬 Alembic</h3><p><b>마이그레이션</b> 도구. DB 테이블 구조 변경을 코드로 기록·적용(= DB의 git 같은 버전 관리).</p></div>
+    <div class="card"><h3>🔐 자체 JWT + 소셜</h3><p>로그인 후 발급하는 <b>토큰(JWT)</b>으로 "이 요청이 누구인지" 인증. 구글·카카오 소셜 로그인 지원.</p></div>
+    <div class="card"><h3>🌐 httpx</h3><p>서버에서 <b>외부 API(TourAPI)를 호출</b>하는 비동기 HTTP 클라이언트.</p></div>
+  </div>
+</div></section>
+
+<!-- 아키텍처 -->
+<section id="arch"><div class="wrap">
+  <h2><span class="n">04 ARCHITECTURE</span>시스템 아키텍처</h2>
+  <p class="lead">요청이 어디서 와서 어디를 거쳐 처리되는지 큰 그림.</p>
+  <div class="arch">
+    <div class="layer">
+      <div class="node client"><div class="ico">📱</div><b>앱 / 프론트엔드</b><small>검색·지도·코스 화면</small></div>
+      <div class="node team"><div class="ico">🤖</div><b>AI 챗봇 (팀원)</b><small>자연어 → REST 호출</small></div>
+    </div>
+    <div class="arrow">↓ <small>HTTP 요청 (REST API)</small></div>
+    <div class="layer">
+      <div class="node api" style="min-width:560px">
+        <div class="ico">⚡</div><b>FastAPI 백엔드</b>
+        <small>라우터(주소 받기) → 서비스(로직) → 모델(DB 객체) → 인증(JWT)</small>
+      </div>
+    </div>
+    <div class="layer" style="margin-top:8px;align-items:flex-start">
+      <div style="text-align:center">
+        <div class="arrow">↓ <small>SQLAlchemy</small></div>
+        <div class="node db"><div class="ico">🐘</div><b>PostgreSQL + PostGIS</b><small>우리 데이터 7개 테이블 (좌표·작품·연결·코스)</small></div>
+      </div>
+      <div style="text-align:center">
+        <div class="arrow">↔ <small>httpx · 실시간</small></div>
+        <div class="node ext"><div class="ico">🏛️</div><b>KTO TourAPI</b><small>관광지 상세 (저장X, 매번 호출)</small></div>
+      </div>
+    </div>
+  </div>
+  <div class="callout info" style="margin-top:22px">
+    <div class="t">💡 신입 포인트 — "계층(layer)"으로 나누는 이유</div>
+    주소를 받는 <b>라우터</b>, 실제 일을 하는 <b>서비스</b>, DB를 다루는 <b>모델</b>을 나눠두면 — 코드가 섞이지 않아
+    <b>고치기·테스트하기 쉬워집니다.</b> (역할 분리 = 유지보수의 기본)
+  </div>
+</div></section>
+
+<!-- 요청 흐름 -->
+<section id="flow"><div class="wrap">
+  <h2><span class="n">05 FLOW</span>요청 흐름 예시 — "도깨비" 검색 → 코스 저장</h2>
+  <p class="lead">실제 한 번의 사용이 백엔드 안에서 어떻게 흐르는지.</p>
+  <ol class="flow">
+    <li>사용자가 <b>"도깨비"</b>를 검색 → 앱이 백엔드로 요청을 보냄</li>
+    <li>백엔드가 <code>contents</code>에서 작품을 찾고, <code>content_place_mappings</code>로 <b>연결된 촬영지(places)</b>를 조회</li>
+    <li>각 장소의 <b>좌표(geom)</b>를 지도 마커로, <b>포스터(poster_url)</b>를 함께 응답</li>
+    <li>장소 상세(운영시간 등)는 <b>TourAPI를 실시간 호출</b>해서 채움 <span class="pill en">무캐싱 규칙</span></li>
+    <li>사용자가 장소 여러 개를 골라 → 백엔드가 <b>좌표로 최적 동선</b>을 계산해 코스 추천</li>
+    <li>로그인 사용자가 저장하면 → <code>courses</code> + <code>course_places</code>(순서)에 기록</li>
+  </ol>
+</div></section>
+
+<!-- ERD -->
+<section id="erd"><div class="wrap">
+  <h2><span class="n">06 DATA MODEL</span>데이터 모델 (ERD) — 7개 테이블</h2>
+  <p class="lead">각 박스 = 테이블. <span class="pill pk">PK</span> 고유번호 · <span class="pill fk">FK</span> 다른 표 연결 · <span class="pill en">ENUM</span> 정해진 값 · <span class="pill geo">GEO</span> 좌표</p>
+
+  <div class="erd">
+    <div class="ent"><div class="head">users <span class="tag">사용자</span></div>
+      <ul>
+        <li><span class="c">user_id</span><span class="pill pk">PK</span></li>
+        <li><span class="c">nickname</span></li>
+        <li><span class="c">auth_provider</span><span class="pill en">ENUM</span></li>
+        <li><span class="c">provider_user_id</span></li>
+      </ul></div>
+    <div class="ent"><div class="head">contents <span class="tag">작품</span></div>
+      <ul>
+        <li><span class="c">content_id</span><span class="pill pk">PK</span></li>
+        <li><span class="c">content_type</span><span class="pill en">ENUM</span></li>
+        <li><span class="c">title_ko</span></li>
+        <li><span class="c">poster_url</span></li>
+      </ul></div>
+    <div class="ent"><div class="head">regions <span class="tag">지역</span></div>
+      <ul>
+        <li><span class="c">region_id</span><span class="pill pk">PK</span></li>
+        <li><span class="c">area_code</span></li>
+        <li><span class="c">name</span></li>
+        <li><span class="c">centroid</span><span class="pill geo">GEO</span></li>
+      </ul></div>
+    <div class="ent hl"><div class="head">content_place_mappings <span class="tag">★ 핵심</span></div>
+      <ul>
+        <li><span class="c">mapping_id</span><span class="pill pk">PK</span></li>
+        <li><span class="c">content_id</span><span class="pill fk">FK</span></li>
+        <li><span class="c">place_id</span><span class="pill fk">FK</span></li>
+        <li style="color:var(--muted);font-size:11.5px">작품↔장소 연결 (M:N)</li>
+      </ul></div>
+    <div class="ent"><div class="head">places <span class="tag">장소</span></div>
+      <ul>
+        <li><span class="c">place_id</span><span class="pill pk">PK</span></li>
+        <li><span class="c">name</span></li>
+        <li><span class="c">geom</span><span class="pill geo">GEO</span></li>
+        <li><span class="c">region_id</span><span class="pill fk">FK</span></li>
+        <li><span class="c">tour_content_id</span></li>
+      </ul></div>
+    <div class="ent"><div class="head">courses <span class="tag">코스</span></div>
+      <ul>
+        <li><span class="c">course_id</span><span class="pill pk">PK</span></li>
+        <li><span class="c">user_id</span><span class="pill fk">FK</span></li>
+        <li><span class="c">title</span></li>
+        <li><span class="c">created_at</span></li>
+      </ul></div>
+    <div class="ent"><div class="head">course_places <span class="tag">경유지</span></div>
+      <ul>
+        <li><span class="c">course_place_id</span><span class="pill pk">PK</span></li>
+        <li><span class="c">course_id</span><span class="pill fk">FK</span></li>
+        <li><span class="c">place_id</span><span class="pill fk">FK</span></li>
+        <li><span class="c">visit_order</span></li>
+      </ul></div>
+  </div>
+
+  <div class="callout star" style="margin-top:20px">
+    <div class="t">🔗 관계 한눈에</div>
+    <div style="font-family:'JetBrains Mono',Consolas,monospace;font-size:13px;line-height:2">
+      users <b>1—N</b> courses <b>1—N</b> course_places <b>N—1</b> places<br>
+      regions <b>1—N</b> places &nbsp;·&nbsp; contents <b>M—N</b> places (via <b>content_place_mappings</b>)
+    </div>
+  </div>
+
+  <h3 style="margin:26px 0 10px;font-size:17px">테이블별 역할 &amp; 컬럼</h3>
+  <table>
+    <tr><th>테이블</th><th>역할</th><th>핵심 컬럼 의미</th></tr>
+    <tr><td><code>users</code></td><td>회원(구글·카카오)</td><td><code>auth_provider</code>+<code>provider_user_id</code> 조합으로 같은 계정 중복가입 방지</td></tr>
+    <tr><td><code>contents</code></td><td>작품(영화·드라마)</td><td><code>title_ko</code>=검색 대상, <code>poster_url</code>=이미지 URL(저장X 표시O)</td></tr>
+    <tr><td><code>regions</code></td><td>지역코드</td><td><code>area_code</code>=TourAPI 코드, <code>centroid</code>=지역 검색 시 지도 중심</td></tr>
+    <tr><td><code>places</code></td><td>장소</td><td><code>geom</code>=좌표(마커·거리계산), <code>tour_content_id</code>=TourAPI 연결키</td></tr>
+    <tr style="background:#fdf2f8"><td><code>content_place_mappings</code> ★</td><td>작품↔장소 연결</td><td>"이 작품이 이 장소에서 촬영" 한 줄 = 앱의 핵심 자산</td></tr>
+    <tr><td><code>courses</code></td><td>저장 코스</td><td><code>user_id</code>=주인, <code>created_at</code>=저장일</td></tr>
+    <tr><td><code>course_places</code></td><td>코스 경유지</td><td><code>visit_order</code>=방문 순서(1,2,3…)</td></tr>
+  </table>
+
+  <h3 style="margin:30px 0 6px;font-size:17px">컬럼별 상세 역할</h3>
+  <p class="lead" style="margin-bottom:16px">7개 테이블의 <b>모든 컬럼</b>이 각각 무슨 일을 하는지. <span class="pill pk">PK</span> 고유번호 · <span class="pill fk">FK</span> 다른 표 연결 · <span class="pill en">ENUM</span> 정해진 값 · <span class="pill geo">GEO</span> 좌표</p>
+  <div class="grid" style="gap:20px">
+
+    <div>
+      <h3 style="font-size:15px;margin:0 0 8px">👤 <code>users</code> <span style="color:var(--muted);font-weight:400;font-size:13px">— 회원(구글·카카오 로그인)</span></h3>
+      <table>
+        <tr><th style="width:184px">컬럼</th><th style="width:72px">종류</th><th>역할 (쉬운 설명)</th></tr>
+        <tr><td><code>user_id</code></td><td><span class="pill pk">PK</span></td><td>회원 한 명을 가리키는 고유 번호 (자동 증가)</td></tr>
+        <tr><td><code>nickname</code></td><td>—</td><td>화면에 보여줄 별명/이름</td></tr>
+        <tr><td><code>auth_provider</code></td><td><span class="pill en">ENUM</span></td><td>어떤 소셜로 로그인했는지 (<code>google</code> / <code>kakao</code>)</td></tr>
+        <tr><td><code>provider_user_id</code></td><td>—</td><td>구글·카카오가 그 사람에게 부여한 고유 ID. <code>auth_provider</code>와 묶어 같은 사람을 식별 → <b>중복가입 방지</b></td></tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="font-size:15px;margin:0 0 8px">📍 <code>regions</code> <span style="color:var(--muted);font-weight:400;font-size:13px">— 지역(검색용 시드)</span></h3>
+      <table>
+        <tr><th style="width:184px">컬럼</th><th style="width:72px">종류</th><th>역할 (쉬운 설명)</th></tr>
+        <tr><td><code>region_id</code></td><td><span class="pill pk">PK</span></td><td>지역 한 곳을 가리키는 고유 번호</td></tr>
+        <tr><td><code>area_code</code></td><td>—</td><td>한국관광공사 TourAPI가 쓰는 지역 코드(예: 강원=32). 외부 호출 시 사용</td></tr>
+        <tr><td><code>name</code></td><td>—</td><td>지역 이름 (예: 강릉시)</td></tr>
+        <tr><td><code>centroid</code></td><td><span class="pill geo">GEO</span></td><td>그 지역의 지도 <b>중심 좌표</b>. 지역을 검색하면 지도를 이 위치로 이동</td></tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="font-size:15px;margin:0 0 8px">🎬 <code>contents</code> <span style="color:var(--muted);font-weight:400;font-size:13px">— 작품(영화·드라마)</span></h3>
+      <table>
+        <tr><th style="width:184px">컬럼</th><th style="width:72px">종류</th><th>역할 (쉬운 설명)</th></tr>
+        <tr><td><code>content_id</code></td><td><span class="pill pk">PK</span></td><td>작품 한 편을 가리키는 고유 번호</td></tr>
+        <tr><td><code>content_type</code></td><td><span class="pill en">ENUM</span></td><td>영화/드라마/예능 구분 (<code>movie</code> / <code>drama</code> / <code>show</code>)</td></tr>
+        <tr><td><code>title_ko</code></td><td>—</td><td>한국어 제목 → <b>검색의 주 대상</b></td></tr>
+        <tr><td><code>poster_url</code></td><td>—</td><td>포스터 이미지 <b>링크(URL)</b>. 이미지를 저장하지 않고 주소만 보관 (다운로드 금지 규칙)</td></tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="font-size:15px;margin:0 0 8px">🗺️ <code>places</code> <span style="color:var(--muted);font-weight:400;font-size:13px">— 장소(촬영지)</span></h3>
+      <table>
+        <tr><th style="width:184px">컬럼</th><th style="width:72px">종류</th><th>역할 (쉬운 설명)</th></tr>
+        <tr><td><code>place_id</code></td><td><span class="pill pk">PK</span></td><td>장소 한 곳을 가리키는 고유 번호</td></tr>
+        <tr><td><code>name</code></td><td>—</td><td>장소 이름 (예: 주문진 방파제)</td></tr>
+        <tr><td><code>geom</code></td><td><span class="pill geo">GEO</span></td><td>장소 <b>좌표</b> → 지도 마커 표시 + 거리·반경 계산</td></tr>
+        <tr><td><code>region_id</code></td><td><span class="pill fk">FK</span></td><td>이 장소가 속한 지역(→ <code>regions</code>). 지역이 삭제되면 이 값만 비워짐</td></tr>
+        <tr><td><code>tour_content_id</code></td><td>—</td><td>TourAPI가 그 관광지에 부여한 ID. 장소 상세를 실시간으로 불러올 때 <b>연결 열쇠</b></td></tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="font-size:15px;margin:0 0 8px">⭐ <code>content_place_mappings</code> <span style="color:var(--muted);font-weight:400;font-size:13px">— 핵심: 작품↔장소 연결</span></h3>
+      <table>
+        <tr><th style="width:184px">컬럼</th><th style="width:72px">종류</th><th>역할 (쉬운 설명)</th></tr>
+        <tr><td><code>mapping_id</code></td><td><span class="pill pk">PK</span></td><td>연결 한 줄을 가리키는 고유 번호</td></tr>
+        <tr><td><code>content_id</code></td><td><span class="pill fk">FK</span></td><td>어떤 작품인지 (→ <code>contents</code>)</td></tr>
+        <tr><td><code>place_id</code></td><td><span class="pill fk">FK</span></td><td>어떤 장소인지 (→ <code>places</code>)</td></tr>
+        <tr><td colspan="3" style="color:var(--muted);font-size:12.5px;background:#fdf2f8">한 줄 = <b>"이 작품이 이 장소에서 촬영됨"</b>. <code>(content_id, place_id)</code>는 유니크라 같은 조합이 두 번 안 들어감. TourAPI엔 없는 데이터라 <b>우리가 직접 채우는 앱의 심장</b>.</td></tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="font-size:15px;margin:0 0 8px">🧳 <code>courses</code> <span style="color:var(--muted);font-weight:400;font-size:13px">— 사용자 저장 코스</span></h3>
+      <table>
+        <tr><th style="width:184px">컬럼</th><th style="width:72px">종류</th><th>역할 (쉬운 설명)</th></tr>
+        <tr><td><code>course_id</code></td><td><span class="pill pk">PK</span></td><td>저장된 코스 하나를 가리키는 고유 번호</td></tr>
+        <tr><td><code>user_id</code></td><td><span class="pill fk">FK</span></td><td>이 코스의 주인(→ <code>users</code>). 회원이 탈퇴하면 그 코스도 함께 삭제</td></tr>
+        <tr><td><code>title</code></td><td>—</td><td>코스 이름 (예: "도깨비 강릉 여행")</td></tr>
+        <tr><td><code>created_at</code></td><td>—</td><td>코스를 저장한 시각</td></tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="font-size:15px;margin:0 0 8px">🧭 <code>course_places</code> <span style="color:var(--muted);font-weight:400;font-size:13px">— 코스 경유지(순서)</span></h3>
+      <table>
+        <tr><th style="width:184px">컬럼</th><th style="width:72px">종류</th><th>역할 (쉬운 설명)</th></tr>
+        <tr><td><code>course_place_id</code></td><td><span class="pill pk">PK</span></td><td>경유지 한 줄을 가리키는 고유 번호</td></tr>
+        <tr><td><code>course_id</code></td><td><span class="pill fk">FK</span></td><td>어느 코스에 속하는지(→ <code>courses</code>). 코스가 삭제되면 함께 삭제</td></tr>
+        <tr><td><code>place_id</code></td><td><span class="pill fk">FK</span></td><td>어떤 장소인지(→ <code>places</code>). 코스에 담긴 장소는 함부로 삭제 못 함</td></tr>
+        <tr><td><code>visit_order</code></td><td>—</td><td>방문 순서 (1,2,3…). <code>(course_id, visit_order)</code> 유니크 → 같은 코스에서 순서 중복 방지</td></tr>
+      </table>
+    </div>
+
+  </div>
+</div></section>
+
+<!-- 공모전 제약 -->
+<section id="rules"><div class="wrap">
+  <h2><span class="n">07 RULES</span>공모전 제약 → 설계 반영</h2>
+  <p class="lead">실격을 피하려고 규칙을 <b>DB 구조에 못박았습니다.</b></p>
+  <table>
+    <tr><th>공모전 규칙</th><th>설계에 어떻게 반영했나</th></tr>
+    <tr><td>TourAPI <b>실시간 호출 + 입증</b></td><td>호출 기록 테이블 <code>api_call_logs</code> (4단계에서 활성화) ⚠️</td></tr>
+    <tr><td>API 응답 <b>무캐싱</b></td><td><code>places</code>에 운영시간·이미지를 <b>저장하지 않음</b> → 매번 실시간 호출</td></tr>
+    <tr><td>인증키 서버 전용 / 이미지 URL만</td><td>키는 서버에만, 이미지는 URL 문자열만 보관</td></tr>
+    <tr><td><b>GPS 미저장</b> / 반경 20km</td><td>코스는 좌표 대신 <code>place_id</code>로 참조</td></tr>
+    <tr><td>금지 API(<code>areaCode2</code>)</td><td><code>regions</code>를 <b>고정 시드 테이블</b>로 미리 보유</td></tr>
+  </table>
+  <div class="callout warn" style="margin-top:18px">
+    <div class="t">⚠️ 합격 핵심</div>
+    "TourAPI를 <b>실시간으로 호출</b>하고 그걸 <code>api_call_logs</code>로 <b>입증</b>" — 이게 안 되면 심사 제외예요. 4단계에서 반드시 구현.
+  </div>
+</div></section>
+
+<!-- 로드맵 -->
+<section id="road"><div class="wrap">
+  <h2><span class="n">08 ROADMAP</span>개발 진행 현황</h2>
+  <p class="lead">전체 10단계 중 3단계 완료 (DB 토대까지).</p>
+  <div class="progress"><i></i></div>
+  <div class="road">
+    <div class="step done"><b>0. 설계 확정</b><span class="st d">완료</span><p>FastAPI + PostGIS + 자체 인증으로 스택 결정</p></div>
+    <div class="step done"><b>1. 프로젝트 뼈대 + /health</b><span class="st d">완료</span><p>서버 구동·헬스체크 확인</p></div>
+    <div class="step done"><b>2. DB 연결 + 모델 + 마이그레이션</b><span class="st d">완료</span><p>PostGIS DB 구동, 최소 7개 테이블 생성·검증</p></div>
+    <div class="step now"><b>3. 회원가입 / 로그인</b><span class="st n">다음</span><p>구글·카카오 소셜 인증 → JWT 발급 → users 적재</p></div>
+    <div class="step"><b>4. place-detail (TourAPI 실시간)</b><span class="st w">대기</span><p>실시간 연동 + api_call_logs 입증 (합격 핵심)</p></div>
+    <div class="step"><b>5. 검색 · 지도 엔드포인트</b><span class="st w">대기</span><p>작품·장소·지역 검색, 자동완성</p></div>
+    <div class="step"><b>6. 코스 추천 엔진</b><span class="st w">대기</span><p>거리 계산 + 방문 순서 최적화</p></div>
+    <div class="step"><b>7. AI(챗봇) 인터페이스</b><span class="st w">대기</span><p>팀원 챗봇용 REST 계약 3종 확정</p></div>
+    <div class="step"><b>8. 테스트 · 컴플라이언스 하드닝</b><span class="st w">대기</span><p>pytest, 금지 API 검사, 로깅</p></div>
+    <div class="step"><b>9. 배포 · 제출 준비</b><span class="st w">대기</span><p>다국어 입증, 데모 시나리오</p></div>
+  </div>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--green)"></i>완료</span>
+    <span><i class="dot" style="background:var(--blue)"></i>진행/다음</span>
+    <span><i class="dot" style="background:#cbd5e1"></i>대기</span>
+  </div>
+</div></section>
+
+<!-- 용어 사전 -->
+<section id="glossary"><div class="wrap">
+  <h2><span class="n">09 GLOSSARY</span>신입 개발자용 용어 사전</h2>
+  <p class="lead">이 문서에 나온 용어를 쉬운 말로.</p>
+  <div class="grid g2">
+    <dl class="term">
+      <dt>API / REST</dt><dd>프로그램끼리 약속된 형식으로 데이터를 주고받는 창구. REST는 그 약속의 한 방식(주소+HTTP).</dd>
+      <dt>ORM</dt><dd>DB 테이블을 파이썬 <b>객체(클래스)</b>처럼 다루게 해주는 도구. SQL을 직접 안 짜도 됨.</dd>
+      <dt>마이그레이션(Migration)</dt><dd>DB 테이블 구조를 바꾼 이력을 코드로 남기고 적용하는 것. "DB의 버전 관리".</dd>
+      <dt>PK / FK</dt><dd><b>PK</b>=각 줄의 고유 번호. <b>FK</b>=다른 테이블의 PK를 가리키는 연결고리.</dd>
+      <dt>ENUM</dt><dd>정해진 값만 허용하는 타입(예: movie/drama/show). 오타·잘못된 값을 DB가 막아줌.</dd>
+    </dl>
+    <dl class="term">
+      <dt>비동기(async)</dt><dd>외부 API를 기다리는 동안 다른 일을 처리. 여러 요청을 효율적으로 동시 처리.</dd>
+      <dt>JWT</dt><dd>로그인 후 받는 <b>출입증 토큰</b>. 매 요청에 첨부하면 서버가 "누구인지" 확인.</dd>
+      <dt>PostGIS / geography</dt><dd>PostgreSQL에 좌표·거리·반경 계산 기능을 더한 확장. <code>geom</code>이 그 좌표 타입.</dd>
+      <dt>인덱스(Index)</dt><dd>검색을 빠르게 하는 "책 색인". 예: 지도 좌표 검색용 공간 인덱스(GIST).</dd>
+      <dt>M:N (다대다)</dt><dd>한 작품이 여러 장소, 한 장소에 여러 작품 → 중간 연결 테이블이 필요(=핵심 자산).</dd>
+    </dl>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  K-tour 백엔드 아키텍처 설계 · 2026 한국관광공사 관광데이터 공모전<br>
+  상세 문서: PROJECT_REPORT.md · DEVELOPMENT_LOG.md · PROGRESS.md · erd.dbml
+</div></footer>
+
+</body>
+</html>
