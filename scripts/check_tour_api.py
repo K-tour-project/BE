@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import select
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import AsyncSessionLocal, engine
-from app.models import Place
 from app.services.tour_api import TourApiClient, TourApiError
 
 GUIDE = """
@@ -53,41 +52,47 @@ async def main() -> None:
     print(f"  관광사진 : {settings.TOUR_PHOTO_API_BASE}")
     print()
 
-    # DB에서 실제 촬영지 하나를 골라 시연한다(관광지로 등록돼 있을 법한 곳).
+    # DB에서 실제 촬영지 하나를 골라 시연한다.
+    # 좌표는 SQL에서 뽑는다 — geoalchemy2의 to_shape()는 Shapely(선택 의존성)를 요구하는데
+    # 이 프로젝트는 설치하지 않았고, 굳이 넣을 이유도 없다.
     async with AsyncSessionLocal() as session:
-        place = (
+        row = (
             await session.execute(
-                select(Place).where(Place.name == "강릉선교장").limit(1)
+                text(
+                    """
+                    SELECT name, address,
+                           ST_Y(geom::geometry) AS lat, ST_X(geom::geometry) AS lng
+                    FROM places
+                    WHERE geom IS NOT NULL
+                    ORDER BY (name = '강릉선교장') DESC, place_id
+                    LIMIT 1
+                    """
+                )
             )
-        ).scalar_one_or_none()
-        if place is None:
-            place = (
-                await session.execute(select(Place).where(Place.geom.isnot(None)).limit(1))
-            ).scalar_one_or_none()
+        ).first()
 
-    if place is None:
+    if row is None:
         print("DB에 장소가 없습니다. 먼저 scripts.seed_from_csv 를 실행하세요.")
         await engine.dispose()
         return
 
-    print(f"테스트 대상 촬영지: {place.name} ({place.address})")
+    print(f"테스트 대상 촬영지: {row.name} ({row.address})")
     print()
 
     ok = True
     try:
         async with TourApiClient() as api:
-            print("① 이름으로 검색 (searchKeyword)")
-            hits = await api.search_keyword(place.name, rows=3)
+            # ★ 실측 결과 locationBasedList는 관광지(contenttypeid=12)를 반환하지 않는다.
+            #   따라서 이름 검색이 주(主) 수단이고 좌표는 검증용이다. (DEVELOPMENT_LOG 참고)
+            print("① 이름으로 검색 (searchKeyword) ← 주 매칭 수단")
+            hits = await api.search_keyword(row.name, rows=3)
             for h in hits[:3]:
                 print(f"   - {h.get('title')} (contentid={h.get('contentid')})")
             if not hits:
                 print("   (검색 결과 없음 — 관광지로 등록되지 않은 장소일 수 있음)")
 
             print("\n② 좌표 반경 1km 검색 (locationBasedList)")
-            from geoalchemy2.shape import to_shape
-
-            pt = to_shape(place.geom)
-            near = await api.location_based(lat=pt.y, lon=pt.x, radius_m=1000, rows=3)
+            near = await api.location_based(lat=row.lat, lon=row.lng, radius_m=1000, rows=3)
             for h in near[:3]:
                 print(f"   - {h.get('title')} ({h.get('dist','?')}m, contentid={h.get('contentid')})")
             if not near:
