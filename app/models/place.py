@@ -9,8 +9,10 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from geoalchemy2 import Geography
-from sqlalchemy import BigInteger, ForeignKey, String
+from sqlalchemy import TIMESTAMP, BigInteger, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -29,6 +31,13 @@ class Place(Base):
     )
     tour_content_id: Mapped[str | None] = mapped_column(String(20))  # TourAPI contentid
 
+    # 마지막으로 TourAPI 매칭을 시도한 시각 (성공·실패 무관).
+    # ★ 왜 필요한가: 촬영지의 절반 가까이는 관광공사 등록 관광지가 아니다. 이 기록이 없으면
+    #   그런 장소를 열 때마다 이름검색 3회를 다시 태워 일일 한도(개발계정 1,000건)를 갉아먹는다.
+    #   남양주종합촬영소(촬영 118회)처럼 인기 있는데 매칭 안 되는 곳이 특히 위험하다.
+    # ⚠️ 무캐싱 규정과 무관하다 — TourAPI 응답 본문이 아니라 '우리가 언제 시도했나'는 자체 기록.
+    tour_matched_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
     # ── 원본 식별자 (재시드 시 중복 방지용 자연키) ──
     # KMDb 장소일련번호(예: GG-P-1113).
     kmdb_place_id: Mapped[str | None] = mapped_column(String(30), unique=True)
@@ -41,4 +50,11 @@ class Place(Base):
     region: Mapped["Region"] = relationship("Region")  # noqa: F821
     mappings: Mapped[list["ContentPlaceMapping"]] = relationship(  # noqa: F821
         "ContentPlaceMapping", back_populates="place", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        # 지역 내 촬영지 조회(지도 화면)의 기본 필터.
+        # ⚠️ 모델에 선언해두지 않으면 alembic autogenerate가 '군더더기'로 보고 DROP을 만든다.
+        # geom의 GIST 인덱스(idx_places_geom)는 GeoAlchemy2가 자동 생성하므로 여기 없어도 된다.
+        Index("ix_places_region_id", "region_id"),
     )

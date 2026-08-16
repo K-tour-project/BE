@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
 from app.features.places import service
-from app.features.places.schema import PlaceOnMap
+from app.features.places.schema import PlaceDetail, PlaceOnMap
+from app.integrations.tour_api import TourApiError
 from app.shared.schema import Page
 
 router = APIRouter(prefix="/places", tags=["places"])
@@ -42,3 +43,27 @@ async def list_places_near(
         raise HTTPException(status_code=404, detail="해당 지역을 찾을 수 없거나 중심점이 없습니다.")
     items, total = result
     return Page[PlaceOnMap](items=items, total=total)
+
+
+@router.get("/{place_id}", response_model=PlaceDetail)
+async def get_place(place_id: int, db: AsyncSession = Depends(get_db)):
+    """장소 상세 — 우리 데이터 + **한국관광공사 TourAPI 실시간 조회**.
+
+    ⚠️ 이 엔드포인트만 **느립니다**(수백 ms~수 초). 공모전 규정상 응답을 캐싱할 수 없어
+       매 요청 실시간 호출하기 때문입니다. 프론트는 로딩 표시를 넣어주세요.
+
+    ★ `detail`은 **null일 수 있습니다** — 예외가 아니라 정상 경로입니다.
+      촬영지의 절반 가까이(방송사 사옥·스튜디오·세트장)는 관광공사 등록 관광지가 아닙니다.
+    """
+    try:
+        place = await service.get_place_detail(db, place_id)
+    except TourApiError as e:
+        # 계약서 §6: 공사 서버 장애·할당량 초과. 우리 데이터는 살아 있으니
+        # 프론트는 detail 없이 화면을 그리는 fallback을 쓰면 됩니다.
+        raise HTTPException(
+            status_code=502, detail=f"관광공사 API 조회에 실패했습니다: {e}"
+        ) from e
+
+    if place is None:
+        raise HTTPException(status_code=404, detail="해당 장소를 찾을 수 없습니다.")
+    return place

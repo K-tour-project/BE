@@ -16,16 +16,29 @@
 """
 from __future__ import annotations
 
+import logging
+import re
+from datetime import datetime, timedelta, timezone
+
 from geoalchemy2 import Geometry
-from sqlalchemy import cast, func, select
+from sqlalchemy import cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.features.contents.schema import ContentOnPlace
-from app.features.places.schema import PlaceInContent, PlaceOnMap
+from app.features.places.matching import RETRY_AFTER_DAYS, match_place
+from app.features.places.schema import PlaceDetail, PlaceInContent, PlaceOnMap, TourDetail
 from app.features.regions.service import region_ref, region_scope_ids
+from app.integrations.call_log import save_calls
+from app.integrations.tour_api import (
+    TourApiClient,
+    TourApiKeyMissing,
+    intro_hours,
+)
 from app.models import Content, ContentPlaceMapping, Place, Region
 from app.shared.schema import Location
+
+logger = logging.getLogger(__name__)
 
 # geography → geometry 캐스팅 후 좌표 추출
 _LAT = func.ST_Y(cast(Place.geom, Geometry))
@@ -156,6 +169,171 @@ async def places_in_region(
         )
         for r in rows
     ], (total or 0)
+
+
+async def _place_row(db: AsyncSession, place_id: int):
+    """장소 한 건 + 소속 지역 + 저장된 TourAPI 연결키."""
+    return (
+        await db.execute(
+            _place_select()
+            .add_columns(Place.tour_content_id, Place.tour_matched_at)
+            .where(Place.place_id == place_id)
+        )
+    ).first()
+
+
+# TourAPI 응답의 homepage는 보통 `<a href="http://...">...</a>` 형태로 온다.
+_HREF = re.compile(r'href=[\'"]?([^\'" >]+)')
+_TAGS = re.compile(r"<[^>]+>")
+
+
+def _clean_url(raw: str | None) -> str | None:
+    """homepage 필드에서 URL만 뽑는다. 앵커 태그를 그대로 내보내면 앱이 처리해야 한다."""
+    if not raw:
+        return None
+    m = _HREF.search(raw)
+    return (m.group(1) if m else _TAGS.sub("", raw).strip()) or None
+
+
+def _clean_text(raw: str | None) -> str | None:
+    """개요에 섞여 오는 <br> 등을 걷어낸다."""
+    if not raw:
+        return None
+    return _TAGS.sub("", raw.replace("<br>", "\n").replace("<br/>", "\n")).strip() or None
+
+
+def _recently_attempted(attempted_at: datetime | None) -> bool:
+    """최근에 매칭을 시도했었나 — 실패한 곳을 매 조회마다 재시도하지 않기 위함."""
+    if attempted_at is None:
+        return False
+    return datetime.now(timezone.utc) - attempted_at < timedelta(days=RETRY_AFTER_DAYS)
+
+
+async def get_place_detail(
+    db: AsyncSession, place_id: int, *, request_id: str | None = None
+) -> PlaceDetail | None:
+    """장소 상세 = 우리 데이터 + **TourAPI 실시간 조회** (4단계 ★공모전 합격 핵심★).
+
+    장소가 없으면 None(라우터가 404). TourAPI 상세 호출이 실패하면 `TourApiError`를
+    올려보낸다(라우터가 502) — 계약서 §6의 약속이다.
+
+    ⚠️ 무캐싱: TourAPI 응답 본문은 저장하지 않는다. 매 요청 실시간 조회다.
+       예외적으로 `tour_content_id`(연결키)만 저장한다 — 이건 응답 본문이 아니라
+       '우리 장소 ↔ 관광공사 관광지' 참조 ID라서 §3.2가 허용한다.
+
+    ⚠️ 호출 예산(개발계정 1,000건/일)
+       매칭 안 된 장소 첫 조회: 최대 3(이름검색) + 3(상세·소개·이미지) = 6건
+       이미 매칭된 장소: 3건 → 하루 약 330회 조회 분량.
+
+    설계 메모 — 언제 502이고 언제 null인가
+      · 이미 연결키가 있는데 상세 조회가 실패 → **502** (장애·할당량)
+      · 아직 매칭 안 된 장소의 이름 검색 실패 → **detail=null로 200**
+        어차피 절반은 관광지가 아니라 null이 정상이고, 장애 때 검색까지 502로 만들면
+        "원래 상세가 없는 장소"와 구분이 안 된다.
+    """
+    row = await _place_row(db, place_id)
+    if row is None:
+        return None
+
+    by_place = await _contents_by_place(db, [place_id])
+    base = dict(
+        place_id=row.place_id,
+        name=row.name,
+        location=Location(lat=row.lat, lng=row.lng),
+        address=row.address,
+        road_address=row.road_address,
+        region=region_ref(row.region_id, row.region_name, row.parent_name),
+        contents=by_place.get(place_id, []),
+    )
+
+    try:
+        api = TourApiClient()
+    except TourApiKeyMissing:
+        # 키가 없어도 우리 데이터는 정상 제공한다(팀원 로컬 개발 시나리오).
+        logger.warning("TOUR_API_KEY 없음 — detail 없이 응답합니다 (place_id=%s)", place_id)
+        return PlaceDetail(**base, detail=None)
+
+    try:
+        async with api:
+            tour_id = row.tour_content_id
+
+            # ① 아직 연결 안 된 장소면 지금 매칭한다(온디맨드).
+            if not tour_id:
+                # 최근에 시도해서 실패한 곳이면 다시 태우지 않는다 — 관광지가 아닌 촬영지를
+                # 열 때마다 검색 3회를 쓰면 일일 한도가 금방 마른다.
+                if _recently_attempted(row.tour_matched_at):
+                    return PlaceDetail(**base, detail=None)
+
+                hit = await match_place(
+                    api,
+                    name=row.name,
+                    lat=row.lat,
+                    lng=row.lng,
+                    region_name=row.region_name,
+                )
+                # 성공·실패 무관하게 '시도했음'을 남긴다. 연결키는 찾았을 때만.
+                # (연결키는 응답 본문이 아니라 참조 ID라 §3.2가 허용하는 저장 대상이다.)
+                values: dict = {"tour_matched_at": func.now()}
+                if hit is not None:
+                    values["tour_content_id"] = hit.tour_content_id
+                await db.execute(
+                    update(Place).where(Place.place_id == place_id).values(**values)
+                )
+                await db.commit()
+
+                if hit is None:
+                    logger.info(
+                        "매칭 실패 place_id=%s '%s' — %d일간 재시도하지 않습니다",
+                        place_id, row.name, RETRY_AFTER_DAYS,
+                    )
+                    return PlaceDetail(**base, detail=None)
+
+                tour_id = hit.tour_content_id
+                logger.info(
+                    "매칭 성공 place_id=%s '%s' → contentid=%s ('%s', 검색어='%s', %.0fm, 유사도=%.2f)",
+                    place_id, row.name, tour_id, hit.matched_title, hit.keyword,
+                    hit.distance_m, hit.similarity,
+                )
+
+            # ② 상세 — 여기 실패는 502로 올린다.
+            common = await api.detail_common(tour_id)
+            if common is None:
+                return PlaceDetail(**base, detail=None)
+
+            # ③ 운영시간·휴무일, ④ 이미지 — 부가 정보라 실패해도 본문은 살린다.
+            use_time = rest_date = None
+            try:
+                intro = await api.detail_intro(tour_id, str(common.get("contenttypeid") or ""))
+                use_time, rest_date = intro_hours(intro, common.get("contenttypeid"))
+            except Exception:  # noqa: BLE001
+                logger.warning("detailIntro2 실패 (contentid=%s) — 운영시간 생략", tour_id)
+
+            images: list[str] = []
+            try:
+                images = [
+                    url
+                    for img in await api.detail_images(tour_id)
+                    if (url := img.get("originimgurl"))
+                ]
+            except Exception:  # noqa: BLE001
+                logger.warning("detailImage2 실패 (contentid=%s) — 이미지 생략", tour_id)
+
+            return PlaceDetail(
+                **base,
+                detail=TourDetail(
+                    tour_content_id=tour_id,
+                    title=common.get("title"),
+                    overview=_clean_text(common.get("overview")),
+                    tel=common.get("tel") or None,
+                    homepage=_clean_url(common.get("homepage")),
+                    use_time=use_time,
+                    rest_date=rest_date,
+                    images=images,
+                ),
+            )
+    finally:
+        # ★ 성공·실패·예외 무관하게 호출 내역을 남긴다 — 이게 '실시간 호출' 입증이다.
+        await save_calls(db, api.calls, request_id=request_id)
 
 
 async def places_near_region(

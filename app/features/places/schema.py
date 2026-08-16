@@ -38,3 +38,38 @@ class PlaceOnMap(BaseModel):
     region: RegionRef | None = None
     contents: list[ContentOnPlace]
     distance_km: float | None = None  # near= 조회일 때만 채워짐
+
+
+class TourDetail(BaseModel):
+    """TourAPI 실시간 조회 결과 — `GET /places/{id}`의 `detail`.
+
+    ⚠️ 이 값들은 **DB에 저장되지 않는다**(무캐싱 규정). 매 요청 실시간 조회다.
+       이미지는 URL만 담는다 — 서버가 파일을 내려받지 않는다.
+    """
+
+    tour_content_id: str
+    title: str | None = None
+    overview: str | None = None
+    tel: str | None = None
+    homepage: str | None = None
+    use_time: str | None = None  # detailIntro2. 타입에 따라 없을 수 있음
+    rest_date: str | None = None
+    images: list[str] = []
+
+
+class PlaceDetail(BaseModel):
+    """`GET /places/{place_id}` — 우리 데이터 + TourAPI 실시간 상세.
+
+    ★ `detail`은 **null이 정상 경로**다. 촬영지의 절반 가까이는 관광공사에 등록된
+      관광지가 아니다(방송사 사옥·스튜디오·세트장·주택가). 실측 매칭 적중률 47%.
+      프론트는 "상세정보 없음"을 예외가 아니라 일반적인 화면으로 다뤄야 한다.
+    """
+
+    place_id: int
+    name: str
+    location: Location
+    address: str | None = None
+    road_address: str | None = None
+    region: RegionRef | None = None
+    contents: list[ContentOnPlace]
+    detail: TourDetail | None = None

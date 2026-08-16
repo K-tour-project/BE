@@ -14,14 +14,41 @@
 """
 from __future__ import annotations
 
+import logging
+import time
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
 
+# ⚠️⚠️ 인증키 유출 차단 (§3.3) — 지우지 말 것.
+#   httpx는 INFO 레벨에서 요청 URL을 통째로 로그에 남긴다. TourAPI는 serviceKey를
+#   **쿼리스트링**으로 받기 때문에, 그대로 두면 인증키가 서버 로그에 평문으로 쌓인다.
+#   ("HTTP Request: GET ...?serviceKey=cvFOcS8at... 200 OK")
+#   로그는 파일로 남고 공유·커밋되기 쉬우므로 실질적인 키 노출이다.
+#   TourAPI를 쓰는 모든 경로(앱·배치 스크립트)가 이 모듈을 거치므로 여기서 막는다.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # 위치기반 조회 반경 상한 (공모전 규칙).
 MAX_RADIUS_M = 20_000
+
+
+@dataclass
+class CallRecord:
+    """호출 1건의 기록 — `api_call_logs` 한 행이 된다.
+
+    ⚠️ `params`엔 serviceKey가 절대 들어가지 않는다(§3.3 인증키 저장 금지).
+    실패한 호출도 기록한다 — '호출을 시도했다'는 사실 자체가 입증 자료다.
+    """
+
+    operation: str
+    params: dict[str, Any]
+    http_status: int | None = None
+    response_time_ms: int = 0
+    result_count: int | None = None
+    error: str | None = None
 
 
 class TourApiError(RuntimeError):
@@ -48,6 +75,10 @@ class TourApiClient:
             timeout=timeout or settings.TOUR_API_TIMEOUT,
             headers={"Accept": "application/json"},
         )
+        # ★ 이 클라이언트를 거친 모든 호출이 여기 쌓인다. 호출부가 잊어버릴 수 없게
+        #   기록을 _get 안에 넣어뒀다 — 입증 누락은 곧 실격이라 옵션으로 두지 않았다.
+        #   DB 저장은 app/integrations/call_log.py 가 맡는다(클라이언트는 DB를 모른다).
+        self.calls: list[CallRecord] = []
 
     async def __aenter__(self) -> "TourApiClient":
         return self
@@ -60,28 +91,45 @@ class TourApiClient:
 
     # ── 내부 공통 호출 ────────────────────────────────────────────────────
     async def _get(self, base: str, operation: str, **params: Any) -> list[dict]:
-        """공통 파라미터를 붙여 호출하고 items 목록을 돌려준다."""
+        """공통 파라미터를 붙여 호출하고 items 목록을 돌려준다.
+
+        성공·실패와 무관하게 `self.calls`에 기록을 남긴다(입증용). 기록에 serviceKey는 없다.
+        """
+        safe_params = {k: v for k, v in params.items() if v is not None}
         query = {
             # httpx가 인코딩하므로 **Decoding 키**를 그대로 넣어야 한다.
             "serviceKey": settings.TOUR_API_KEY,
             "MobileOS": "ETC",
             "MobileApp": settings.TOUR_API_APP_NAME,
             "_type": "json",
-            **{k: v for k, v in params.items() if v is not None},
+            **safe_params,
         }
-        url = f"{base}/{operation}"
+        record = CallRecord(operation=operation, params=safe_params)
+        self.calls.append(record)
+        started = time.perf_counter()
+
+        def elapsed() -> int:
+            return int((time.perf_counter() - started) * 1000)
+
         try:
-            res = await self._client.get(url, params=query)
+            res = await self._client.get(f"{base}/{operation}", params=query)
         except httpx.HTTPError as e:
+            record.response_time_ms = elapsed()
+            record.error = str(e)[:200]
             raise TourApiError(f"{operation} 호출 실패: {e}") from e
 
+        record.response_time_ms = elapsed()
+        record.http_status = res.status_code
+
         if res.status_code != 200:
+            record.error = res.text[:200]
             raise TourApiError(f"{operation} HTTP {res.status_code}: {res.text[:200]}")
 
         # 키가 잘못되면 공사 서버가 JSON이 아니라 XML 에러를 준다 → 원문을 살려 진단한다.
         try:
             body = res.json()
         except ValueError:
+            record.error = "non-JSON response"
             raise TourApiError(
                 f"{operation} 응답이 JSON이 아닙니다(키 오류일 가능성이 큽니다): {res.text[:300]}"
             ) from None
@@ -89,13 +137,17 @@ class TourApiClient:
         header = body.get("response", {}).get("header", {})
         code = header.get("resultCode")
         if code not in ("0000", "00", None):
+            record.error = f"[{code}] {header.get('resultMsg')}"[:200]
             raise TourApiError(f"{operation} 실패 [{code}] {header.get('resultMsg')}")
 
         items = body.get("response", {}).get("body", {}).get("items")
         if not items:  # 결과 0건이면 items가 빈 문자열로 온다.
+            record.result_count = 0
             return []
         item = items.get("item", [])
-        return item if isinstance(item, list) else [item]
+        rows = item if isinstance(item, list) else [item]
+        record.result_count = len(rows)
+        return rows
 
     # ── 장소 상세 (4단계 핵심) ────────────────────────────────────────────
     async def detail_common(self, content_id: str) -> dict | None:
@@ -114,11 +166,31 @@ class TourApiClient:
             imageYN="Y",
         )
 
-    # ── 우리 장소 ↔ 관광공사 관광지 매칭용 ────────────────────────────────
+    async def detail_intro(self, content_id: str, content_type_id: str) -> dict | None:
+        """운영시간·휴무일 등 타입별 소개정보.
+
+        `detailCommon2`엔 운영시간이 없어서 계약서의 `use_time`·`rest_date`를 채우려면
+        이 호출이 따로 필요하다. `contentTypeId`는 detailCommon2 응답에서 얻는다.
+        """
+        rows = await self._get(
+            settings.TOUR_API_BASE,
+            "detailIntro2",
+            contentId=content_id,
+            contentTypeId=content_type_id,
+        )
+        return rows[0] if rows else None
+
+    # ── 촬영지 주변 관광정보 ──────────────────────────────────────────────
     async def location_based(
         self, lat: float, lon: float, radius_m: int = 1000, rows: int = 20
     ) -> list[dict]:
-        """좌표 반경 내 관광지. 촬영지 좌표로 TourAPI contentid를 찾을 때 쓴다."""
+        """좌표 반경 내 관광정보.
+
+        ⚠️ 매칭용이 아니다. 실측 결과 이 오퍼레이션은 **관광지(contenttypeid=12)를
+        반환하지 않는다**(강릉선교장: 좌표 7m 차이인데도 반경 5km에서 미검출).
+        돌려주는 타입은 39·38·28·14·32뿐이라 촬영지 매칭에는 쓸 수 없고,
+        '촬영지 주변 맛집·카페' 보강 용도다. 매칭은 `search_keyword`가 주 수단.
+        """
         return await self._get(
             settings.TOUR_API_BASE,
             "locationBasedList2",
@@ -130,7 +202,7 @@ class TourApiClient:
         )
 
     async def search_keyword(self, keyword: str, rows: int = 10) -> list[dict]:
-        """키워드(장소명) 검색. 좌표 매칭이 애매할 때 이름으로 보조 확인."""
+        """키워드(장소명) 검색 — ★우리 장소 ↔ 관광공사 관광지 매칭의 주(主) 수단."""
         return await self._get(
             settings.TOUR_API_BASE,
             "searchKeyword2",
@@ -149,3 +221,24 @@ class TourApiClient:
             numOfRows=rows,
             pageNo=1,
         )
+
+
+# ── detailIntro2 필드 이름 정규화 ─────────────────────────────────────────
+# 같은 '운영시간'인데 콘텐츠 타입마다 필드 이름이 다르다. 계약서는 use_time·rest_date
+# 하나로 약속했으므로 여기서 흡수한다. 32(숙박)는 체크인/아웃이라 대응 필드가 없다.
+_INTRO_FIELDS: dict[str, tuple[str, str]] = {
+    "12": ("usetime", "restdate"),  # 관광지
+    "14": ("usetimeculture", "restdateculture"),  # 문화시설
+    "28": ("usetimeleports", "restdateleports"),  # 레포츠
+    "38": ("opentime", "restdateshopping"),  # 쇼핑
+    "39": ("opentimefood", "restdatefood"),  # 음식점
+}
+
+
+def intro_hours(row: dict | None, content_type_id: str | None) -> tuple[str | None, str | None]:
+    """detailIntro2 응답 → `(운영시간, 휴무일)`. 대응 필드가 없으면 (None, None)."""
+    fields = _INTRO_FIELDS.get(str(content_type_id or ""))
+    if not row or not fields:
+        return None, None
+    use_key, rest_key = fields
+    return (row.get(use_key) or None), (row.get(rest_key) or None)

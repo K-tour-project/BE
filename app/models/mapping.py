@@ -9,7 +9,7 @@ TourAPI엔 "어떤 작품이 어디서 촬영됐는지"가 없다. 이 연결이
 """
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -40,4 +40,7 @@ class ContentPlaceMapping(Base):
 
     __table_args__ = (
         UniqueConstraint("content_id", "place_id", name="uq_cpm_content_place"),
+        # 장소 목록에 작품을 붙일 때(N+1 방지 쿼리)가 가장 뜨거운 경로다.
+        # ⚠️ 모델에 선언해두지 않으면 alembic autogenerate가 '군더더기'로 보고 DROP을 만든다.
+        Index("ix_cpm_place_id", "place_id"),
     )
