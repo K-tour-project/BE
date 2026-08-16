@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import AsyncSessionLocal, engine
-from app.services.tour_api import TourApiClient, TourApiError
+from app.integrations.tour_api import TourApiClient, TourApiError
 
 GUIDE = """
 TOUR_API_KEY가 아직 .env에 없습니다.

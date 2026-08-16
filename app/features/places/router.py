@@ -12,9 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
-from app.schemas.common import Page
-from app.schemas.place import PlaceOnMap
-from app.services import catalog
+from app.features.places import service
+from app.features.places.schema import PlaceOnMap
+from app.shared.schema import Page
 
 router = APIRouter(prefix="/places", tags=["places"])
 
@@ -37,7 +37,7 @@ async def list_places_near(
             detail=f"radius_km는 {MAX_RADIUS_KM}를 넘을 수 없습니다(공모전 위치기반 조회 제한).",
         )
 
-    result = await catalog.places_near_region(db, near, radius_km, limit, offset)
+    result = await service.places_near_region(db, near, radius_km, limit, offset)
     if result is None:
         raise HTTPException(status_code=404, detail="해당 지역을 찾을 수 없거나 중심점이 없습니다.")
     items, total = result

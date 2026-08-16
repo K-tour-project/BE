@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.schemas.common import Location
+from app.shared.schema import Location
 
 
 class RegionCandidate(BaseModel):

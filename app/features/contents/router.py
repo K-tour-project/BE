@@ -8,15 +8,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
-from app.schemas.common import Page
-from app.schemas.content import (
+from app.features.contents import service
+from app.features.contents.schema import (
     ContentDetail,
     ContentResolveRequest,
     ContentResolveResponse,
     ContentSummary,
 )
-from app.schemas.place import PlaceInContent
-from app.services import catalog
+from app.features.places.schema import PlaceInContent
+from app.features.places.service import places_of_content
+from app.shared.schema import Page
 
 router = APIRouter(prefix="/contents", tags=["contents"])
 
@@ -32,7 +33,7 @@ async def search_contents(
 
     관련도(정확일치 > 접두 > 부분) → 촬영지 수 → 최신순으로 정렬한다.
     """
-    items, total = await catalog.search_contents(db, q, limit, offset)
+    items, total = await service.search_contents(db, q, limit, offset)
     return Page[ContentSummary](items=items, total=total)
 
 
@@ -46,12 +47,12 @@ async def resolve_content(
     ★ 동명 작품이 실재하므로(「만추」 1966·1981) **항상 배열**을 돌려준다.
       후보 0개도 정상 응답이다.
     """
-    return ContentResolveResponse(candidates=await catalog.resolve_contents(db, body.query))
+    return ContentResolveResponse(candidates=await service.resolve_contents(db, body.query))
 
 
 @router.get("/{content_id}", response_model=ContentDetail)
 async def get_content(content_id: int, db: AsyncSession = Depends(get_db)):
-    detail = await catalog.get_content(db, content_id)
+    detail = await service.get_content(db, content_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="해당 작품을 찾을 수 없습니다.")
     return detail
@@ -68,7 +69,7 @@ async def get_content_places(
 
     `location`은 항상 있고(좌표 100%), `scene_description`은 75%가 비어 있다.
     """
-    if await catalog.get_content(db, content_id) is None:
+    if await service.get_content(db, content_id) is None:
         raise HTTPException(status_code=404, detail="해당 작품을 찾을 수 없습니다.")
-    items, total = await catalog.places_of_content(db, content_id, limit, offset)
+    items, total = await places_of_content(db, content_id, limit, offset)
     return Page[PlaceInContent](items=items, total=total)

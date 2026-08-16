@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.schemas.common import Location, RegionRef
-from app.schemas.content import ContentOnPlace
+from app.features.contents.schema import ContentOnPlace
+from app.shared.schema import Location, RegionRef
 
 
 class PlaceInContent(BaseModel):

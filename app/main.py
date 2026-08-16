@@ -2,15 +2,18 @@
 from fastapi import FastAPI
 
 from app.core.config import settings
-from app.routers import contents, health, places, regions
+from app.features.contents.router import router as contents_router
+from app.features.health.router import router as health_router
+from app.features.places.router import router as places_router
+from app.features.regions.router import router as regions_router
 
 app = FastAPI(title=settings.APP_NAME)
 
-# 라우터(창구) 등록 — 앞으로 만드는 라우터는 여기에 include_router 로 연결한다.
-app.include_router(health.router)
-app.include_router(contents.router)  # 5단계: 작품 검색·상세·촬영지
-app.include_router(regions.router)   # 5단계: 지역 리졸브·목록·지역 내 촬영지
-app.include_router(places.router)    # 5단계: 반경 조회 (4단계에서 상세가 추가된다)
+# 라우터(창구) 등록 — 기능 폴더를 app/features/ 에 추가한 뒤 여기 한 줄만 더하면 연결된다.
+app.include_router(health_router)
+app.include_router(contents_router)  # 5단계: 작품 검색·상세·촬영지
+app.include_router(regions_router)   # 5단계: 지역 리졸브·목록·지역 내 촬영지
+app.include_router(places_router)    # 5단계: 반경 조회 (4단계에서 상세가 추가된다)
 
 
 @app.get("/")
