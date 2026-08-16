@@ -134,10 +134,32 @@ async def places_of_content(
     ], (total or 0)
 
 
+def _shoot_count_sq():
+    """이 장소에서 촬영된 작품 수(상관 서브쿼리). '대표 촬영지' 정렬의 기준."""
+    return (
+        select(func.count())
+        .select_from(ContentPlaceMapping)
+        .where(ContentPlaceMapping.place_id == Place.place_id)
+        .scalar_subquery()
+    )
+
+
 async def places_in_region(
-    db: AsyncSession, region_id: int, content_id: int | None, limit: int, offset: int
+    db: AsyncSession,
+    region_id: int,
+    content_id: int | None,
+    limit: int,
+    offset: int,
+    sort: str = "popular",
 ) -> tuple[list[PlaceOnMap], int]:
-    """지역 내 촬영지. (`GET /regions/{id}/places`)"""
+    """지역 내 촬영지. (`GET /regions/{id}/places`)
+
+    ★ 기본 정렬이 '촬영 횟수순'인 이유
+      강남구 473곳·종로구 399곳처럼 촬영지가 몰린 지역이 있다. 여기서 이름 가나다순으로
+      앞 20개를 주면 「달」·「누리」·「모색」 같은 한 글자 가게들이 나오고 경복궁은 안 보인다.
+      사용자가 지역을 눌렀을 때 기대하는 건 그 동네의 **대표 촬영지**다.
+      (종로구 촬영횟수순 = 경복궁 10편 · 경희궁 9편 · 낙산공원 9편 · 창덕궁 8편)
+    """
     scope = await region_scope_ids(db, region_id)
 
     stmt = _place_select().where(Place.region_id.in_(scope))
@@ -153,8 +175,12 @@ async def places_in_region(
         stmt = stmt.where(Place.place_id.in_(sub))
         count_stmt = count_stmt.where(Place.place_id.in_(sub))
 
+    order = (
+        [Place.name] if sort == "name" else [_shoot_count_sq().desc(), Place.name]
+    )
+
     total = await db.scalar(count_stmt)
-    rows = (await db.execute(stmt.order_by(Place.name).limit(limit).offset(offset))).all()
+    rows = (await db.execute(stmt.order_by(*order).limit(limit).offset(offset))).all()
     by_place = await _contents_by_place(db, [r.place_id for r in rows], content_id)
 
     return [

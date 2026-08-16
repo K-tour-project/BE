@@ -41,6 +41,11 @@ async def list_regions(
 async def get_region_places(
     region_id: int,
     content_id: int | None = Query(None, description="작품으로 좁히기(유저플로우 4b)"),
+    sort: str = Query(
+        "popular",
+        pattern="^(popular|name)$",
+        description="popular=촬영 횟수 많은 순(기본) · name=가나다순",
+    ),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -49,8 +54,12 @@ async def get_region_places(
 
     `region_id`가 시도면 그 아래 시군구의 장소까지 포함한다.
     `content_id`를 주면 그 작품의 촬영지만 남는다 — 필터 전/후 응답 구조는 동일.
+
+    ★ 기본은 **촬영 횟수 많은 순**(그 지역의 대표 촬영지부터). 강남구 473곳·종로구 399곳처럼
+      몰린 지역에서 앞 20개만 봐도 경복궁·창덕궁이 나오게 하기 위함이다.
+      가나다순이 필요하면 `?sort=name`.
     """
-    items, total = await places_in_region(db, region_id, content_id, limit, offset)
+    items, total = await places_in_region(db, region_id, content_id, limit, offset, sort)
     if total == 0 and not items:
         # 지역 자체가 없는 경우와 '장소가 0건'인 경우를 구분해준다.
         if not await service.resolve_region_exists(db, region_id):

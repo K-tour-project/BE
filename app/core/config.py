@@ -33,10 +33,27 @@ class Settings(BaseSettings):
     #    앱(APK)이나 git에 절대 넣지 않는다 — 노출 시 공모전 실격 사유이며 키는 2년 유효.
     #    비어 있으면 TourAPI 호출부가 명확한 에러를 내고 나머지 기능은 정상 동작한다.
     TOUR_API_KEY: str = ""
-    # 신청 서비스: '한국관광공사_국문 관광정보 서비스_GW' (data.go.kr/data/15101578)
+    # ⚠️ 경로 뒤 숫자는 서비스마다 다르다. 추측하지 말 것 — 아래는 전부 실호출로 확인한 값이다.
+    #    (KorService는 1이 폐기되고 2가 살아 있는데, 나머지 둘은 반대로 1만 존재한다.)
+
+    # ① '한국관광공사_국문 관광정보 서비스_GW' (data.go.kr/data/15101578) — ✅ 승인·동작 확인
+    #    KorService1은 폐기(NO_OPENAPI_SERVICE_ERROR) → 반드시 KorService2 + `~2` 오퍼레이션.
     TOUR_API_BASE: str = "http://apis.data.go.kr/B551011/KorService2"
-    # 신청 서비스: '한국관광공사_관광사진 정보_GW' (data.go.kr/data/15101914)
-    TOUR_PHOTO_API_BASE: str = "http://apis.data.go.kr/B551011/PhotoGalleryService2"
+
+    # ② '한국관광공사_관광사진 정보_GW' (data.go.kr/data/15101914) — ⚠️ 키 미승인 상태
+    #    PhotoGalleryService2는 존재하지 않는다(12번 오류). Service**1** + galleryList1이 맞다.
+    #    현재 이 키로 호출하면 403 SERVICE_KEY_IS_NOT_REGISTERED → data.go.kr에서 활용신청 필요.
+    #    확인된 오퍼레이션: galleryList1 · gallerySearchList1 · galleryDetailList1
+    TOUR_PHOTO_API_BASE: str = "http://apis.data.go.kr/B551011/PhotoGalleryService1"
+
+    # ③ '한국관광공사_기초지자체 중심 관광지 정보' (data.go.kr/data/15128559) — ✅ 승인·동작 확인
+    #    지자체별로 '다른 관광지와 가장 많이 연결되는 중심 관광지'와 그 연관 관광지를 준다.
+    #    TarRlteTarService2는 400 → Service**1** + areaBasedList1이 맞다.
+    #    ⚠️ 코드 체계가 다르다 — areaCd/signguCd는 TourAPI 지역코드가 아니라 **법정동 코드**다
+    #       (강원특별자치도=51, 강릉시=51150). regions 테이블 채우기 전엔 호출할 수 없다.
+    TOUR_RLTE_API_BASE: str = "http://apis.data.go.kr/B551011/TarRlteTarService1"
+    # 이 서비스는 기준연월(baseYm)이 필수. 202312은 0건, 202606까지 데이터 확인됨.
+    TOUR_RLTE_BASE_YM: str = "202606"
     # 공사 요구 식별자(모든 요청에 붙는다)
     TOUR_API_APP_NAME: str = "EveryTrip"
     TOUR_API_TIMEOUT: float = 10.0
