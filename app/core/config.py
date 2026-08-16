@@ -40,9 +40,8 @@ class Settings(BaseSettings):
     #    KorService1은 폐기(NO_OPENAPI_SERVICE_ERROR) → 반드시 KorService2 + `~2` 오퍼레이션.
     TOUR_API_BASE: str = "http://apis.data.go.kr/B551011/KorService2"
 
-    # ② '한국관광공사_관광사진 정보_GW' (data.go.kr/data/15101914) — ⚠️ 키 미승인 상태
-    #    PhotoGalleryService2는 존재하지 않는다(12번 오류). Service**1** + galleryList1이 맞다.
-    #    현재 이 키로 호출하면 403 SERVICE_KEY_IS_NOT_REGISTERED → data.go.kr에서 활용신청 필요.
+    # ② '한국관광공사_관광사진 정보_GW' (data.go.kr/data/15101914) — ✅ 승인·동작 확인
+    #    PhotoGalleryService2는 존재하지 않는다(12번 오류). Service**1** + `~1` 오퍼레이션이 맞다.
     #    확인된 오퍼레이션: galleryList1 · gallerySearchList1 · galleryDetailList1
     TOUR_PHOTO_API_BASE: str = "http://apis.data.go.kr/B551011/PhotoGalleryService1"
 

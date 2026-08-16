@@ -212,14 +212,60 @@ class TourApiClient:
         )
 
     # ── 관광사진 (포토코리아) ─────────────────────────────────────────────
+    # ⚠️ 이 서비스는 `PhotoGalleryService1`이다(2는 존재하지 않음). 오퍼레이션도 `~1`.
+    #    한때 `galleryKeywordList2`로 잘못 적혀 있었는데 그런 경로는 없다(12번 오류).
     async def gallery_search(self, keyword: str, rows: int = 10) -> list[dict]:
-        """관광사진 갤러리 검색 — 사진 제목·촬영지·웹용 이미지 URL."""
+        """관광사진 키워드 검색 — 사진 제목·촬영지·촬영자·웹용 이미지 URL.
+
+        주요 필드: galTitle · galWebImageUrl · galPhotographyLocation ·
+                  galPhotographer · galPhotographyMonth · galSearchKeyword
+        ⚠️ 이미지는 URL만 쓴다(다운로드 금지). 저작권 표기를 위해 촬영자를 함께 노출한다.
+        """
         return await self._get(
             settings.TOUR_PHOTO_API_BASE,
-            "galleryKeywordList2",
+            "gallerySearchList1",
             keyword=keyword,
             numOfRows=rows,
             pageNo=1,
+        )
+
+    async def gallery_list(self, rows: int = 10, page: int = 1) -> list[dict]:
+        """관광사진 전체 목록(최신순). 검색어 없이 둘러볼 때."""
+        return await self._get(
+            settings.TOUR_PHOTO_API_BASE, "galleryList1", numOfRows=rows, pageNo=page
+        )
+
+    # ── 기초지자체 중심 관광지 / 연관 관광지 ──────────────────────────────
+    async def related_spots(
+        self,
+        area_cd: str,
+        signgu_cd: str,
+        *,
+        base_ym: str | None = None,
+        rows: int = 100,
+        page: int = 1,
+    ) -> list[dict]:
+        """지자체의 '중심 관광지'와 그에 연결되는 '연관 관광지' 목록.
+
+        ★ 이 앱에 특히 잘 맞는다 — 강릉시 1위가 「도깨비촬영지/(영진해변)」다.
+          `locationBasedList2`가 관광지(contenttypeid=12)를 안 돌려주는 문제의 우회로이자,
+          6단계 코스 추천에서 '촬영지 주변 볼거리·먹거리'를 붙일 재료다.
+
+        ⚠️ `areaCd`/`signguCd`는 TourAPI 지역코드가 **아니라 법정동 코드**다.
+           (강원특별자치도=51, 강릉시=51150 / TourAPI 지역코드로는 강원=32)
+           `regions.area_code`·`sigungu_code`를 채워야 호출할 수 있다.
+
+        주요 필드: tAtsNm(중심관광지) · rlteTatsNm(연관관광지) · rlteRank(순위) ·
+                  rlteCtgryLclsNm(대분류: 관광지/음식/숙박) · rlteCtgryMclsNm(중분류)
+        """
+        return await self._get(
+            settings.TOUR_RLTE_API_BASE,
+            "areaBasedList1",
+            baseYm=base_ym or settings.TOUR_RLTE_BASE_YM,
+            areaCd=area_cd,
+            signguCd=signgu_cd,
+            numOfRows=rows,
+            pageNo=page,
         )
 
 

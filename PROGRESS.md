@@ -89,6 +89,25 @@ app/
 | `places.tour_matched_at` — 실패 기억(쿼터 보호, 리비전 `06fb23255fb0`) | ✅ |
 | 인기 촬영지 300~500곳 사전매칭 **완주** (현재 11곳) | 🔶 진행 중 |
 
+## 사용 API 3종 (2026-08-16 실호출 검증 — 전부 승인·동작)
+⚠️ **경로 뒤 숫자가 서비스마다 다르다. 추측 금지** — KorService만 2이고 나머지 둘은 1이다.
+
+| # | 서비스 (data.go.kr) | 실제 경로 | 쓰는 곳 |
+|---|---|---|---|
+| ① | 국문 관광정보 `15101578` | `KorService2` | 장소 상세(4단계) · 매칭 |
+| ② | 관광사진 정보 `15101914` | `PhotoGalleryService1` | 촬영지 사진 보강 (미연동) |
+| ③ | 기초지자체 중심 관광지 `15128559` | `TarRlteTarService1` | 주변 볼거리·코스 추천(6단계) (미연동) |
+
+- ①: `KorService1`은 폐기. `detailCommon2`·`detailIntro2`·`detailImage2`·`searchKeyword2` 사용.
+- ②: `PhotoGalleryService2`·`galleryKeywordList2`는 **존재하지 않는 경로**(12번 오류).
+  확인된 오퍼레이션 `galleryList1`·`gallerySearchList1`·`galleryDetailList1`.
+  응답에 `galPhotographer`(촬영자)가 있어 **저작권 표기와 함께** 노출해야 한다.
+- ③: `TarRlteTarService2`는 400. `areaBasedList1` + `baseYm` 필수(`202606` 확인, `202312`은 0건).
+  ⚠️ **`areaCd`/`signguCd`가 법정동 코드다** (강원특별자치도=`51`, 강릉시=`51150`).
+  TourAPI 자체 지역코드(강원=32)와 **다르다.** `regions.area_code`·`sigungu_code`가
+  현재 **0/244**라 채우기 전엔 호출 불가 — ③ 연동의 선행 과제.
+  실측: 강릉시 → 관광지 1위 **「도깨비촬영지/(영진해변)」**, 숙박 1위 블리스펜션, 음식 1위 금성해장국.
+
 **호출 입증 (`api_call_logs`)** — 모든 호출이 `TourApiClient._get` 안에서 자동 기록된다(빠뜨릴 수 없는 구조).
 남기는 것은 `operation`·`request_params`·`http_status`·`response_time_ms`·`result_count`·`called_at`뿐 —
 **응답 본문은 저장하지 않는다(무캐싱)**. `request_params`에 `serviceKey`는 들어가지 않는다(검증: 유출 0건).
