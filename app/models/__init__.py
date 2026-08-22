@@ -8,6 +8,9 @@
 4단계에서 추가 활성화:
   - api_call_logs         → app/models/api_log.py    (TourAPI 호출 입증 ⚠️실격 방지 필수)
 
+3단계에서 추가 활성화:
+  - refresh_tokens, email_verifications → app/models/auth.py  (로그아웃·이메일 인증)
+
 지연(나중에 해당 기능 만들 때, 아래 import만 풀면 활성화):
   - content_translations  → app/models/content_translation.py   (9단계 다국어)
   - place_aliases         → app/models/place_alias.py           (4단계 매칭 별칭 캐시)
@@ -15,6 +18,7 @@
 """
 from app.core.db import Base
 from app.models.api_log import ApiCallLog
+from app.models.auth import EmailVerification, RefreshToken
 from app.models.content import Content
 from app.models.course import Course, CoursePlace
 from app.models.mapping import ContentPlaceMapping
@@ -37,4 +41,6 @@ __all__ = [
     "Course",
     "CoursePlace",
     "ApiCallLog",
+    "RefreshToken",
+    "EmailVerification",
 ]

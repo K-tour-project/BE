@@ -12,4 +12,7 @@ geoalchemy2
 # Stage 3: Auth (자체 JWT 발급/검증) + 소셜 토큰 검증·외부 API용 HTTP 클라이언트
 python-jose[cryptography]
 httpx
-# ※ 소셜 로그인 전용이라 비밀번호 해싱(passlib/bcrypt)은 쓰지 않음.
+# 일반 회원가입(이메일+비밀번호) 비밀번호 해싱. passlib은 유지보수가 멈춰 bcrypt를 직접 쓴다.
+bcrypt
+# pydantic의 EmailStr 검증에 필요 (없으면 import 시점에 에러)
+email-validator

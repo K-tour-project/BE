@@ -10,7 +10,7 @@
 | 1 | 프로젝트 뼈대 + `/health` | ✅ |
 | 2 | DB 연결 + Alembic + 모델(최소 7테이블) | ✅ |
 | **2.5** | **스키마 확장 + 실데이터 적재(CSV 13,761행)** | ✅ **완료 (2026-08-15)** |
-| 3 | 회원가입/로그인 (구글·카카오 소셜) | 🔶 착수(JWT 토대만) |
+| **3** | **회원가입/로그인/로그아웃 (일반 + 구글·카카오)** | ✅ **완료 (2026-08-22)** |
 | **4** | **place-detail (TourAPI 실시간 + `api_call_logs` 입증)** ⚠️합격핵심 | ✅ **완료 (2026-08-16)** |
 | **5** | **검색·지도 엔드포인트 (8종)** | ✅ **완료 (2026-08-15)** |
 | 6 | 코스 추천 엔진 | ⬜ |
@@ -30,7 +30,7 @@
 ## 확정된 설계 결정 (2026-08-15)
 | # | 항목 | 결정 |
 |---|---|---|
-| 1 | 로그인 방식 | **소셜(구글·카카오) 전용** — 이메일+비번 없음, passlib/bcrypt 미사용 |
+| 1 | 로그인 방식 | ~~소셜 전용~~ → **2026-08-22 변경: 소셜(구글·카카오) + 일반 회원가입(이메일+비번, 이메일 인증)** |
 | 2 | 코스 기능 | **유지** — courses·course_places 그대로, 6단계에서 추천 구현 |
 | 3 | 장르 저장 | **배열 컬럼** `contents.genre_tags` (+ GIN 인덱스) |
 | 4 | 데이터 출처 | **CSV를 우리 DB로**, 장소 상세(운영시간·이미지)는 **TourAPI 실시간** |
@@ -50,8 +50,9 @@ app/
 │   ├─ contents/      작품 검색·상세                    (5단계 ✅)
 │   ├─ places/        촬영지 조회·반경·상세 + matching.py (4·5단계 ✅)
 │   ├─ regions/       지역 리졸브·목록                   (5단계 ✅)
-│   └─ health/        헬스체크                          (1단계 ✅)
-│       └ auth/ (3단계) · courses/ (6단계) 가 여기 추가된다
+│   ├─ health/        헬스체크                          (1단계 ✅)
+│   └─ auth/         회원가입·로그인·로그아웃·소셜        (3단계 ✅)
+│       └ courses/ (6단계) 가 여기 추가된다
 ├─ integrations/      tour_api.py · call_log.py  ← 외부 연동은 '기능'이 아니라 어댑터
 ├─ shared/            schema.py (Location·RegionRef·Page)
 ├─ core/  deps/       설정·DB·인증 토대
@@ -60,21 +61,93 @@ app/
 ```
 새 기능 추가 = `features/` 아래 폴더 하나 + [`main.py`](./app/main.py)에 `include_router` 한 줄.
 
-## 현재 DB 상태 (리비전 `06fb23255fb0`)
+## 현재 DB 상태 (리비전 `9a1c7d2e5b40`)
 | 테이블 | 행수 | 주요 컬럼 |
 |---|---|---|
 | `regions` | **244** (시도 17 + 시군구 227) | region_id, name, **level**, **parent_region_id**, area_code, sigungu_code, centroid |
 | `contents` | **1,694** | content_id, content_type, title_ko, poster_url, **kmdb_code**, source, source_url, production_year, original_title, overview, **genre_tags**, tmdb_id, tmdb_type, vote_average, runtime |
 | `places` | **9,811** | place_id, name, geom, region_id, tour_content_id, **kmdb_place_id**, source, **address**, road_address |
 | `content_place_mappings` ★ | **13,755** | mapping_id, content_id, place_id, **kmdb_case_id**, **scene_description**, characters, **episode** |
-| `users` | 0 | user_id, nickname, auth_provider, provider_user_id |
-| `courses` / `course_places` | 0 / 0 | (3~6단계에서 사용) |
+| `users` | 0 | user_id, nickname, auth_provider(**local**/google/kakao), provider_user_id?, **email**?, **password_hash**?, **email_verified**, created_at |
+| `courses` / `course_places` | 0 / 0 | (6단계에서 사용) |
+| `refresh_tokens` 🆕 | 0 | token_id, user_id, **token_hash**(SHA-256), expires_at, revoked_at, user_agent |
+| `email_verifications` 🆕 | 0 | verification_id, email, **code_hash**, expires_at, attempt_count, verified_at, consumed_at |
 
 **데이터 품질**: 장소 좌표 100%(9,811/9,811) · 장소↔지역 연결 100% · 지역 중심점 100%(244/244) · 작품 장르 82% · 포스터 82%.
 **인덱스**: `idx_places_geom`(GIST, 반경검색 검증됨) · `ix_contents_genre_tags`(GIN) · `ix_places_region_id` · `ix_cpm_place_id`.
 
 > 지연 5테이블(favorites·search_history·content_translations·place_aliases·**api_call_logs⚠️**)은
 > [`app/models/__init__.py`](./app/models/__init__.py)에서 import 주석 처리 상태. 해당 기능 단계에서 활성화.
+
+## 팀 분담 (2026-08-22)
+백엔드를 둘로 나눴다. **브랜치를 분리해 작업**한다 — `main` 직접 커밋 금지.
+
+| 담당 | 범위 | 브랜치 |
+|---|---|---|
+| 김은서 | **인증** — 회원가입·로그인·로그아웃·소셜(카카오/구글) | `eunseo` |
+| 팀원 | 지도 API 기반 지역 구분 | `yoon` |
+
+`app/models/user.py`·`app/deps/`·`app/main.py`는 인증 쪽에서 건드리므로 병합 시 확인이 필요하다.
+
+## 3단계 완료 — 인증 (2026-08-22)
+
+**설계 결정 — 왜 토큰이 2개인가.** JWT는 서버가 저장하지 않고 서명만 검증한다. 빠른 대신
+**발급 후 취소가 불가능**해서 로그아웃 버튼이 무력해진다. 그래서 역할을 쪼갰다.
+
+| | access | refresh |
+|---|---|---|
+| 정체 | JWT | 난수 48바이트 |
+| 수명 | **1시간** | **30일** |
+| 저장 | 안 함 | `refresh_tokens`에 **SHA-256 해시로** |
+| 취소 | 불가 | 가능 → **이게 로그아웃** |
+
+기존 계약("14일짜리 토큰 1개")은 폐기했다. 실무 표준이고, 짧은 수명과 자동 로그인 유지를
+동시에 얻는 유일한 구조다.
+
+| 항목 | 상태 |
+|---|---|
+| `app/features/auth/` — router·service·schema·social·mailer (기능 폴더 1개로 통합) | ✅ |
+| `app/core/security.py` — JWT 2종 · refresh 해시 · bcrypt · 인증코드 | ✅ |
+| `app/deps/get_current_user` + `CurrentUser`·`OptionalUser` 별칭 | ✅ |
+| 마이그레이션 `9a1c7d2e5b40` — enum `local` 추가 · users 확장 · 테이블 2개 | ✅ |
+| 엔드포인트 **10종** 실호출 검증 [`scripts/check_auth.py`](./scripts/check_auth.py) **38/38 통과** | ✅ |
+| 실제 메일 발송(SMTP 계정) | 🔶 미설정 — `dev_code`로 개발 가능 |
+| `GOOGLE_CLIENT_ID`·`KAKAO_APP_ID` | 🔶 미설정 — **배포 전 필수** |
+
+**엔드포인트 10종**
+
+| 경로 | 역할 |
+|---|---|
+| `POST /auth/email/send-code` | 가입용 6자리 인증코드 발송 |
+| `POST /auth/email/verify-code` | 코드 확인 (30분짜리 가입 통과권) |
+| `POST /auth/signup` | 회원가입 + 즉시 토큰 발급 `201` |
+| `POST /auth/login` | 이메일+비밀번호 로그인 |
+| `POST /auth/google` | 구글 `id_token` 검증 → 자동 가입/로그인 |
+| `POST /auth/kakao` | 카카오 `access_token` 검증 → 자동 가입/로그인 |
+| `POST /auth/refresh` | access 재발급 (**refresh 회전**) |
+| `POST /auth/logout` | 이 기기 refresh 폐기 (멱등) |
+| `POST /auth/logout-all` 🔒 | 모든 기기 로그아웃 |
+| `GET /auth/me` 🔒 | 내 정보 |
+
+**보안 결정 요약**
+
+| 항목 | 선택 | 근거 |
+|---|---|---|
+| 비밀번호 | **bcrypt** (passlib 미사용) | passlib은 유지보수 중단. 72바이트 한계는 스키마에서 차단 |
+| refresh 저장 | SHA-256 해시 | DB 유출돼도 로그인 불가. 난수라 bcrypt 불필요·조회키로 써야 함 |
+| refresh 회전 | 재발급 시 옛것 즉시 폐기 | 안 하면 유출 토큰으로 30일 내내 access 발급 가능 |
+| **재사용 감지** | 폐기된 refresh 재등장 → **전 세션 차단** | 정상 앱은 새것을 받아갔다 = 탈취 신호 |
+| 로그인 실패 문구 | 계정없음·비번틀림 **동일** | 이메일 대입으로 가입 여부를 캐내지 못하게 |
+| 소셜 검증 | 토큰 진위 + **앱 소속**(`aud`/`app_id`) | 진위만 보면 **다른 앱 토큰으로도 로그인된다** |
+| 인증코드 | 10분 · 5회 · 재발송 60초 · 해시 저장 | 6자리는 100만 조합 — 횟수 제한이 없으면 뚫린다 |
+| 유저 테이블 | 한 테이블 + CHECK 제약 | `courses.user_id` FK가 가입 경로별로 갈라지면 안 됨 |
+
+**⚠️ 남은 것**
+- `.env`에 `GOOGLE_CLIENT_ID`·`KAKAO_APP_ID`가 비어 있으면 **앱 소속 검증을 건너뛴다**
+  (서버 로그에 경고 출력). 배포 전 반드시 채운다.
+- SMTP 미설정 상태 — `send-code` 응답의 `dev_code`와 서버 로그로 코드가 나온다.
+  Gmail 앱 비밀번호를 `.env`에 넣으면 코드 수정 없이 실제 발송으로 전환된다.
+- 소셜 로그인 **정상 경로**는 앱에 SDK가 붙어야 확인 가능(현재는 위조 토큰 401 거부만 검증됨).
 
 ## 4단계 완료 — TourAPI 실시간 연동 (2026-08-16) ⚠️합격핵심
 
@@ -167,13 +240,20 @@ app/
 - **엔드포인트 9종 동작**: 5단계 8종 + `GET /places/{id}`.
 - **바로 다음**: 사전매칭 배치 완주 — `python -m scripts.match_tour_places --limit 50`을
   하루 여러 번 나눠 돌려 인기 촬영지 300~500곳을 채운다(현재 11곳, 일 1,000건 한도).
-- **그다음(3단계)**: 소셜 로그인. JWT 토대([`app/core/security.py`](./app/core/security.py))는 있고
-  **`/auth/google`·`/auth/kakao`·`/auth/me` 라우터 + 소셜 토큰 검증 + `deps/get_current_user`가 미구현.**
+- **3단계 완료(2026-08-22)**: 인증 10종. 위 「3단계 완료」 절 참고.
+  `deps/CurrentUser`가 생겨 6단계 코스 저장에 바로 `🔒`를 붙일 수 있다.
 - **알려진 갭**
-  - **테스트가 0개** — 수동 검증만 해왔다. 8단계에서 pytest 도입 필요.
+  - **pytest가 0개** — 검증은 실호출 스크립트([`check_tour_api.py`](./scripts/check_tour_api.py) ·
+    [`check_auth.py`](./scripts/check_auth.py) 38케이스)로만 해왔다. 8단계에서 pytest 도입 필요.
+  - **소셜 로그인 정상 경로 미검증** — 앱에 카카오/구글 SDK가 붙어야 확인 가능. 현재는
+    위조 토큰이 401로 거부되는 것까지만 확인됨.
+  - **`GOOGLE_CLIENT_ID`·`KAKAO_APP_ID` 미설정** — 비어 있으면 "이 토큰이 우리 앱 것인가"
+    검증을 건너뛴다. ⚠️ 배포 전 필수.
   - 매칭 `tour_content_id` 11/9,811 (온디맨드로 계속 늘어남)
   - 작품 296편(18%)에 포스터 없음 · **드라마 10편뿐**(영화 1,684편) — 앱 컨셉이 "영화·드라마"인데
     드라마가 사실상 없다. 스키마는 INSERT만으로 추가 가능하므로 데이터 확보 여부가 관건.
   - **운영계정 필요 여부 확인** — 개발계정 1,000건/일로 심사·시연 트래픽을 감당할 수 있는지.
     승인에 시간이 걸리므로 미리 확인해야 한다.
-- **커밋**: `main`에 반영됨.
+- **커밋**: 5단계까지는 `main`. **인증(3단계)은 `eunseo` 브랜치** — 팀원이 `yoon`에서 작업 중이라
+  분리했다. `main` 직접 push 금지.
+- **다음 후보**: 6단계 코스(인증 붙일 준비 끝) · 사전매칭 배치 완주 · 8단계 pytest 도입.
