@@ -1,7 +1,7 @@
 # K-tour BE — 진행 현황 (한눈에 보기)
 
 > **앱**: 영화 촬영지 기반 관광 코스 앱(Every Trip) / **공모전 1차 마감 2026-09-21(월) 16:00**
-> 문서 안내 — 로드맵·결정: [`PROJECT_REPORT.md`](./PROJECT_REPORT.md) · 상세 구현일지: [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md) · 구조 설명: [`PROJECT_STRUCTURE.md`](./PROJECT_STRUCTURE.md) · ERD: [`erd.dbml`](./erd.dbml) · 본 문서: 단계별 현황 스냅샷.
+> 문서 안내 — **전체 경과 요약: [`DEV_SUMMARY.md`](./DEV_SUMMARY.md)** · 로드맵·결정: [`PROJECT_REPORT.md`](./PROJECT_REPORT.md) · 상세 구현일지: [`DEVELOPMENT_LOG.md`](./DEVELOPMENT_LOG.md) · 구조 설명: [`PROJECT_STRUCTURE.md`](./PROJECT_STRUCTURE.md) · ERD: [`erd.dbml`](./erd.dbml) · 본 문서: 단계별 현황 스냅샷.
 
 ## 전체 로드맵
 | 단계 | 내용 | 상태 |
