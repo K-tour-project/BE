@@ -10,7 +10,7 @@ CSV(`data/data.csv`)의 `시도`·`시군구`를 그대로 계층으로 시드�
 """
 from __future__ import annotations
 
-from geoalchemy2 import Geography
+from geoalchemy2 import Geography, Geometry
 from sqlalchemy import BigInteger, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,10 @@ class Region(Base):
 
     centroid = mapped_column(  # 지도 중심 좌표(소속 장소들의 평균으로 시드)
         Geography(geometry_type="POINT", srid=4326, spatial_index=False), nullable=True
+    )
+    boundary = mapped_column(
+        Geometry(geometry_type="MULTIPOLYGON", srid=4326, spatial_index=False),
+        nullable=True,
     )
 
     parent: Mapped["Region | None"] = relationship(
