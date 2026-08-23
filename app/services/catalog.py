@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from geoalchemy2 import Geometry
+from geoalchemy2 import Geography, Geometry
 from sqlalchemy import Float, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -181,12 +181,11 @@ async def resolve_regions(db: AsyncSession, name: str, limit: int = 20) -> list[
             Region.region_id,
             Region.name,
             Region.level,
+            Region.bjd_cd,
             parent.name.label("parent_name"),
-            func.ST_Y(cast(Region.centroid, Geometry)).label("lat"),
-            func.ST_X(cast(Region.centroid, Geometry)).label("lng"),
         )
         .select_from(Region)
-        .outerjoin(parent, parent.region_id == Region.parent_region_id)
+        .outerjoin(parent, parent.region_id == Region.parent_id)
     )
 
     tokens = name.split()
@@ -217,7 +216,7 @@ async def resolve_regions(db: AsyncSession, name: str, limit: int = 20) -> list[
             name=r.name,
             full_name=_full_name(r.parent_name, r.name),
             level=r.level,
-            centroid=Location(lat=r.lat, lng=r.lng) if r.lat is not None else None,
+            bjd_cd=r.bjd_cd,
         )
         for r in rows
     ]
@@ -237,9 +236,8 @@ async def list_regions(db: AsyncSession, flat: bool) -> tuple[list[RegionNode], 
                 Region.region_id,
                 Region.name,
                 Region.level,
-                Region.parent_region_id,
-                func.ST_Y(cast(Region.centroid, Geometry)).label("lat"),
-                func.ST_X(cast(Region.centroid, Geometry)).label("lng"),
+                Region.parent_id,
+                Region.bjd_cd,
             ).order_by(Region.level.desc(), Region.name)
         )
     ).all()
@@ -249,8 +247,8 @@ async def list_regions(db: AsyncSession, flat: bool) -> tuple[list[RegionNode], 
             region_id=r.region_id,
             name=r.name,
             level=r.level,
-            parent_region_id=r.parent_region_id,
-            centroid=Location(lat=r.lat, lng=r.lng) if r.lat is not None else None,
+            parent_id=r.parent_id,
+            bjd_cd=r.bjd_cd,
             children=children,
         )
 
@@ -260,11 +258,11 @@ async def list_regions(db: AsyncSession, flat: bool) -> tuple[list[RegionNode], 
 
     kids: dict[int, list[RegionChild]] = {}
     for r in rows:
-        if r.level == "sigungu" and r.parent_region_id:
-            kids.setdefault(r.parent_region_id, []).append(
-                RegionChild(region_id=r.region_id, name=r.name, level=r.level)
+        if r.level == "2" and r.parent_id:
+            kids.setdefault(r.parent_id, []).append(
+                RegionChild(region_id=r.region_id, name=r.name, level=r.level, bjd_cd=r.bjd_cd)
             )
-    sidos = [r for r in rows if r.level == "sido"]
+    sidos = [r for r in rows if r.level == "1"]
     items = [node(r, kids.get(r.region_id, [])) for r in sorted(sidos, key=lambda x: x.name)]
     return items, len(items)
 
@@ -288,7 +286,7 @@ def _place_select():
         )
         .select_from(Place)
         .outerjoin(Region, Region.region_id == Place.region_id)
-        .outerjoin(parent, parent.region_id == Region.parent_region_id)
+        .outerjoin(parent, parent.region_id == Region.parent_id)
     )
 
 
@@ -364,7 +362,7 @@ async def _region_scope_ids(db: AsyncSession, region_id: int) -> list[int]:
     """시도면 자기 + 자식 시군구, 시군구면 자기만."""
     children = (
         await db.execute(
-            select(Region.region_id).where(Region.parent_region_id == region_id)
+            select(Region.region_id).where(Region.parent_id == region_id)
         )
     ).scalars().all()
     return [region_id, *children]
@@ -410,15 +408,19 @@ async def places_near_region(
     db: AsyncSession, region_id: int, radius_km: float, limit: int, offset: int
 ) -> tuple[list[PlaceOnMap], int] | None:
     """지역 중심점 반경 내 장소. 중심점이 없으면 None."""
-    centroid = (
-        await db.execute(select(Region.centroid).where(Region.region_id == region_id))
+    region_point = (
+        await db.execute(
+            select(cast(func.ST_PointOnSurface(Region.boundary), Geography)).where(
+                Region.region_id == region_id
+            )
+        )
     ).scalar_one_or_none()
-    if centroid is None:
+    if region_point is None:
         return None
 
     radius_m = radius_km * 1000
-    dist = func.ST_Distance(Place.geom, centroid).label("dist_m")
-    where = func.ST_DWithin(Place.geom, centroid, radius_m)
+    dist = func.ST_Distance(Place.geom, region_point).label("dist_m")
+    where = func.ST_DWithin(Place.geom, region_point, radius_m)
 
     total = await db.scalar(select(func.count()).select_from(Place).where(where))
     rows = (

@@ -1,7 +1,7 @@
 """Seed regions from data/regions.csv.
 
 The CSV is the source of truth for the regions hierarchy and boundaries:
-region_id, name, level, parent_id, boundary.
+region_id, parent_id, level, name, bjd_cd, boundary.
 
 Run:
     python -m scripts.seed_regions
@@ -27,7 +27,7 @@ def _read_rows() -> list[dict]:
     with CSV_PATH.open(encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
 
-    required = {"region_id", "name", "level", "parent_id", "boundary"}
+    required = {"region_id", "name", "level", "parent_id", "bjd_cd", "boundary"}
     missing = required.difference(rows[0].keys() if rows else [])
     if missing:
         raise ValueError(f"Missing CSV columns: {', '.join(sorted(missing))}")
@@ -44,13 +44,18 @@ def _read_rows() -> list[dict]:
         if not boundary:
             raise ValueError(f"Missing boundary for region_id={region_id}")
 
+        bjd_cd = (row["bjd_cd"] or "").strip()
+        if not bjd_cd:
+            raise ValueError(f"Missing bjd_cd for region_id={region_id}")
+
         parent_id = (row["parent_id"] or "").strip()
         normalized.append(
             {
                 "region_id": region_id,
+                "parent_id": int(parent_id) if parent_id else None,
                 "name": row["name"].strip(),
                 "level": row["level"].strip(),
-                "parent_region_id": int(parent_id) if parent_id else None,
+                "bjd_cd": bjd_cd,
                 "boundary": boundary,
             }
         )
@@ -63,22 +68,25 @@ async def _upsert_regions(session, rows: list[dict]) -> None:
         """
         INSERT INTO regions (
             region_id,
-            name,
+            parent_id,
             level,
-            parent_region_id,
+            name,
+            bjd_cd,
             boundary
         )
         VALUES (
             :region_id,
-            :name,
+            :parent_id,
             :level,
-            :parent_region_id,
+            :name,
+            :bjd_cd,
             ST_Multi(ST_GeomFromText(:boundary, 4326))
         )
         ON CONFLICT (region_id) DO UPDATE SET
-            name = EXCLUDED.name,
+            parent_id = EXCLUDED.parent_id,
             level = EXCLUDED.level,
-            parent_region_id = EXCLUDED.parent_region_id,
+            name = EXCLUDED.name,
+            bjd_cd = EXCLUDED.bjd_cd,
             boundary = EXCLUDED.boundary
         """
     )
@@ -119,6 +127,9 @@ async def _validate(session, expected_count: int) -> dict[str, int]:
                 text("SELECT count(*) FROM regions WHERE boundary IS NULL")
             )
         ).scalar_one(),
+        "null_bjd_cd": (
+            await session.execute(text("SELECT count(*) FROM regions WHERE bjd_cd IS NULL"))
+        ).scalar_one(),
         "non_4326_boundaries": (
             await session.execute(
                 text("SELECT count(*) FROM regions WHERE ST_SRID(boundary) <> 4326")
@@ -142,7 +153,7 @@ async def _validate(session, expected_count: int) -> dict[str, int]:
                     SELECT count(*)
                     FROM regions child
                     LEFT JOIN regions parent
-                      ON parent.region_id = child.parent_region_id
+                      ON parent.region_id = child.parent_id
                     WHERE child.level = '2'
                       AND parent.region_id IS NULL
                     """
@@ -157,13 +168,14 @@ async def seed(prune: bool = False) -> None:
     rows = _read_rows()
 
     async with AsyncSessionLocal() as session:
-        await _upsert_regions(session, rows)
         pruned = await _prune_extra_regions(session, rows) if prune else 0
+        await _upsert_regions(session, rows)
         checks = await _validate(session, len(rows))
 
         failed = {
             "db_rows": checks["db_rows"] != checks["csv_rows"],
             "null_boundaries": checks["null_boundaries"] != 0,
+            "null_bjd_cd": checks["null_bjd_cd"] != 0,
             "non_4326_boundaries": checks["non_4326_boundaries"] != 0,
             "non_multipolygon_boundaries": checks["non_multipolygon_boundaries"] != 0,
             "level_2_missing_parents": checks["level_2_missing_parents"] != 0,

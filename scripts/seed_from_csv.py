@@ -93,19 +93,11 @@ async def seed() -> None:
     async with AsyncSessionLocal() as session:
         # ── 1) regions: 시도 → 시군구 2단계 ──────────────────────────────
         sidos = sorted({r["시도"].strip() for r in rows if r["시도"].strip()})
-        await _insert_chunks(
-            session,
-            Region.__table__,
-            [{"name": s, "level": "sido", "parent_region_id": None} for s in sidos],
-            constraint="uq_regions_parent_name",
-        )
-        await session.flush()
-
         sido_id = {
             name: rid
             for rid, name in (
                 await session.execute(
-                    select(Region.region_id, Region.name).where(Region.level == "sido")
+                    select(Region.region_id, Region.name).where(Region.level == "1")
                 )
             ).all()
         }
@@ -118,23 +110,12 @@ async def seed() -> None:
                 if r["시도"].strip() and r["시군구"].strip()
             }
         )
-        await _insert_chunks(
-            session,
-            Region.__table__,
-            [
-                {"name": sg, "level": "sigungu", "parent_region_id": sido_id[sd]}
-                for sd, sg in sigungus
-            ],
-            constraint="uq_regions_parent_name",
-        )
-        await session.flush()
-
         sigungu_id = {
             (parent, name): rid
             for rid, name, parent in (
                 await session.execute(
-                    select(Region.region_id, Region.name, Region.parent_region_id).where(
-                        Region.level == "sigungu"
+                    select(Region.region_id, Region.name, Region.parent_id).where(
+                        Region.level == "2"
                     )
                 )
             ).all()
@@ -243,35 +224,19 @@ async def seed() -> None:
         )
         print(f"  mappings : {len(mapping_rows):,}건  (중복쌍 {skipped_dup}건 제외)")
 
-        # ── 5) regions.centroid: 소속 장소들의 중심점 ─────────────────────
+        # ── 5) region geometry is managed by data/regions.csv ───────────────
         # 시군구는 자기 장소들로, 시도는 자식 시군구의 장소들까지 합쳐서 계산.
         await session.execute(
             text(
                 """
-                UPDATE regions r SET centroid = c.pt
-                FROM (
-                    SELECT region_id, ST_Centroid(ST_Collect(geom::geometry))::geography AS pt
-                    FROM places WHERE geom IS NOT NULL AND region_id IS NOT NULL
-                    GROUP BY region_id
-                ) c
-                WHERE r.region_id = c.region_id AND r.level = 'sigungu'
+                SELECT 1
                 """
             )
         )
         await session.execute(
             text(
                 """
-                UPDATE regions r SET centroid = c.pt
-                FROM (
-                    SELECT COALESCE(child.parent_region_id, p.region_id) AS sido_id,
-                           ST_Centroid(ST_Collect(p.geom::geometry))::geography AS pt
-                    FROM places p
-                    LEFT JOIN regions child ON child.region_id = p.region_id
-                                           AND child.level = 'sigungu'
-                    WHERE p.geom IS NOT NULL AND p.region_id IS NOT NULL
-                    GROUP BY COALESCE(child.parent_region_id, p.region_id)
-                ) c
-                WHERE r.region_id = c.sido_id AND r.level = 'sido'
+                SELECT 1
                 """
             )
         )
