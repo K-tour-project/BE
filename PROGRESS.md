@@ -116,7 +116,7 @@ app/
 | 마이그레이션 `9a1c7d2e5b40` — enum `local` 추가 · users 확장 · 테이블 2개 | ✅ |
 | 엔드포인트 **9종** 실호출 검증 [`scripts/check_auth.py`](./scripts/check_auth.py) **37/37 통과** | ✅ |
 | 실제 메일 발송(SMTP 계정) | 🔶 미설정 — `dev_code`로 개발 가능 |
-| `GOOGLE_CLIENT_ID` (구글 웹 클라이언트 ID) | 🔶 미설정 — **배포 전 필수** |
+| `GOOGLE_CLIENT_ID` (구글 **웹** 클라이언트 ID) | ✅ **설정 완료 (2026-08-30)** — aud 검증 동작 확인 |
 
 **엔드포인트 9종** (+ 카카오 1종은 윤영 담당)
 
@@ -251,8 +251,8 @@ app/
     [`check_auth.py`](./scripts/check_auth.py) 37케이스)로만 해왔다. 8단계에서 pytest 도입 필요.
   - **소셜 로그인 정상 경로 미검증** — 앱에 카카오/구글 SDK가 붙어야 확인 가능. 현재는
     위조 토큰이 401로 거부되는 것까지만 확인됨.
-  - **`GOOGLE_CLIENT_ID`·`KAKAO_APP_ID` 미설정** — 비어 있으면 "이 토큰이 우리 앱 것인가"
-    검증을 건너뛴다. ⚠️ 배포 전 필수.
+  - **`KAKAO_APP_ID` 미설정** — 카카오는 윤영 담당이라 앱 ID도 그쪽에서 넣는다.
+    (`GOOGLE_CLIENT_ID`는 2026-08-30 설정 완료 — [`check_google_aud.py`](./scripts/check_google_aud.py)로 검증됨)
   - 매칭 `tour_content_id` 11/9,811 (온디맨드로 계속 늘어남)
   - 작품 296편(18%)에 포스터 없음 · **드라마 10편뿐**(영화 1,684편) — 앱 컨셉이 "영화·드라마"인데
     드라마가 사실상 없다. 스키마는 INSERT만으로 추가 가능하므로 데이터 확보 여부가 관건.

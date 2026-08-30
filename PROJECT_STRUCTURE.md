@@ -256,6 +256,7 @@ BE/
 | `seed_from_csv.py` | `data/data.csv` 13,761행 → 4개 테이블 분해 적재 | **재실행 안전** — 자연키 `ON CONFLICT DO NOTHING` |
 | `match_tour_places.py` | 인기 촬영지를 TourAPI 관광지에 사전 매칭 | `--limit`으로 일일 한도(1,000건) 보호, `--dry-run` 지원 |
 | `check_auth.py` | 인증 37케이스 실호출 검증 | 성공 9 + **거부 28** |
+| `check_google_aud.py` | 구글 aud 관문 5케이스 | **서버 불필요** — tokeninfo 응답을 흉내 냄 |
 | `check_tour_api.py` | TourAPI 키·경로·오퍼레이션 실호출 검증 | 4단계에서 경로 3종 실측에 사용 |
 
 ---
@@ -1001,6 +1002,7 @@ docker start ktour-db                    # PC 재부팅 후엔 이것부터 (Doc
 
 ```powershell
 .venv\Scripts\python.exe -m scripts.check_auth        # 인증 37케이스 (서버 먼저 띄울 것)
+.venv\Scripts\python.exe -m scripts.check_google_aud  # 구글 aud 관문 5케이스 (서버 불필요)
 .venv\Scripts\python.exe -m scripts.check_tour_api    # TourAPI 키·경로 실호출
 ```
 
@@ -1036,7 +1038,8 @@ docker start ktour-db                    # PC 재부팅 후엔 이것부터 (Doc
 ### 설정 (배포 전 필수)
 | | 내용 |
 |---|---|
-| ⚠️ `GOOGLE_CLIENT_ID` (**웹** 클라이언트 ID) | 비면 **"우리 앱 토큰인가" 검증을 건너뛴다** → 다른 앱 토큰으로도 로그인됨. ⚠️ Android용이 아니라 **웹** 클라이언트 ID를 넣어야 한다 |
+| ~~`GOOGLE_CLIENT_ID`~~ | ✅ **2026-08-30 설정 완료.** aud 검증 동작 확인(`check_google_aud.py` 5/5) |
+| `KAKAO_APP_ID` | ⬜ 윤영 담당 (카카오 엔드포인트와 함께) |
 | SMTP 계정 | 미설정. Gmail 앱 비밀번호를 `.env`에 넣으면 코드 수정 없이 실제 발송 전환 |
 | 운영계정 신청 | 개발계정 **1,000건/일**로 심사·시연을 감당할 수 있는지 확인. 승인에 시간 소요 |
 
