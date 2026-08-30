@@ -1,4 +1,4 @@
-"""인증 엔드포인트 10종을 실제로 호출해 검증한다.
+"""인증 엔드포인트 9종을 실제로 호출해 검증한다.
 
     # 1) 서버를 먼저 띄운다
     .venv/Scripts/python.exe -m uvicorn app.main:app --reload
@@ -13,8 +13,9 @@
     ⑤ 재사용 감지 — 죽은 refresh를 다시 쓰면 그 계정의 모든 세션이 끊기는지
     ⑥ 로그아웃 → 그 refresh로 재발급 불가
 
-소셜 로그인(구글·카카오)은 실제 제공자 토큰이 있어야 해서 여기선 **위조 토큰이 401로
+소셜 로그인(구글)은 실제 제공자 토큰이 있어야 해서 여기선 **위조 토큰이 401로
 거부되는 것까지만** 확인한다. 정상 경로는 앱 연동 후 수동 확인이 필요하다.
+**카카오는 팀 분담상 윤영이 맡아 아직 미구현**이라 케이스가 빠져 있다(구현되면 주석 해제).
 """
 from __future__ import annotations
 
@@ -224,8 +225,9 @@ def main() -> int:
         print("\n⑧ 소셜 로그인 (위조 토큰 거부 확인)")
         r = c.post("/auth/google", json={"id_token": "fake.token.value"})
         check("가짜 구글 토큰은 401", r.status_code == 401, f"{r.status_code} {r.text[:80]}")
-        r = c.post("/auth/kakao", json={"access_token": "fake-kakao-token"})
-        check("가짜 카카오 토큰은 401", r.status_code == 401, f"{r.status_code} {r.text[:80]}")
+        # 카카오는 윤영 담당으로 아직 엔드포인트가 없다. 구현되면 아래 두 줄을 살린다.
+        # r = c.post("/auth/kakao", json={"access_token": "fake-kakao-token"})
+        # check("가짜 카카오 토큰은 401", r.status_code == 401, f"{r.status_code} {r.text[:80]}")
 
     print(f"\n{'─' * 60}")
     print(f"통과 {len(PASSED)} / 실패 {len(FAILED)}")

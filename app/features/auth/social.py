@@ -111,61 +111,63 @@ async def verify_google(id_token: str) -> SocialProfile:
 # ─────────────────────────────────── 카카오 ──────────────────────────────────
 
 
+# ⚠️ 아래 verify_kakao()는 **미구현**이다. 팀 분담상 카카오는 윤영이 맡는다
+#    (지도 API 때문에 카카오 개발자센터 앱을 이미 만들어 둔 쪽이 로그인까지 담당).
+#    구현하는 사람이 바로 시작할 수 있게 무엇을 어떻게 해야 하는지 아래에 다 적어 둔다.
 async def verify_kakao(access_token: str) -> SocialProfile:
-    """카카오 액세스 토큰을 검증하고 프로필을 돌려온다.
+    """카카오 액세스 토큰을 검증하고 프로필을 돌려준다.  ← **구현 필요**
 
-    구글과 달리 **두 번 호출**한다. 카카오 액세스 토큰은 아무 정보도 담고 있지 않은
-    불투명한 문자열이라, 앱 소속 확인과 사용자 정보 조회를 각각 물어봐야 한다.
-      ① `access_token_info` → 이 토큰이 우리 앱 것인지(`app_id`)
-      ② `user/me`          → id · 닉네임 · 이메일
-    `KAKAO_APP_ID`가 비어 있으면 ①을 생략해 호출 1번으로 끝낸다.
-    """
-    headers = {"Authorization": f"Bearer {access_token}"}
-    try:
-        async with httpx.AsyncClient(timeout=settings.SOCIAL_API_TIMEOUT) as client:
-            if settings.KAKAO_APP_ID.strip():
-                info = await client.get(KAKAO_TOKEN_INFO_URL, headers=headers)
-                if info.status_code != 200:
-                    raise _invalid_token("카카오 토큰이 유효하지 않습니다.")
-                if str(info.json().get("app_id")) != settings.KAKAO_APP_ID.strip():
-                    raise _invalid_token("이 앱을 위해 발급된 카카오 토큰이 아닙니다.")
-            else:
-                logger.warning(
-                    "KAKAO_APP_ID가 비어 있어 앱 소속 검증을 건너뜁니다. "
-                    "배포 전 .env에 반드시 설정하세요."
-                )
+    ## 구글과 달리 두 번 호출해야 한다
+    카카오 액세스 토큰은 아무 정보도 담고 있지 않은 **불투명한 문자열**이다.
+    (구글 `id_token`은 정보가 담긴 서명된 JWT라 한 번이면 된다.)
+    그래서 두 가지를 각각 물어봐야 한다. 상수는 위에 이미 선언돼 있다.
 
-            res = await client.get(
-                KAKAO_USER_ME_URL,
-                headers=headers,
-                # 필요한 항목만 요청 — 안 쓰는 개인정보는 애초에 받지 않는다(최소수집 원칙).
-                params={
-                    "property_keys": '["kakao_account.email","kakao_account.profile"]'
-                },
-            )
-    except httpx.HTTPError:
-        raise _provider_down("카카오") from None
+    ① `KAKAO_TOKEN_INFO_URL` — 이 토큰이 **우리 앱 것인지** 확인
+       헤더 `Authorization: Bearer {access_token}`
+       응답 `{"id": 3812947, "expires_in": 21599, "app_id": 1234567}`
+       → `app_id`가 `settings.KAKAO_APP_ID`와 같은지 대조한다.
 
-    if res.status_code != 200:
-        raise _invalid_token("카카오 토큰이 유효하지 않습니다.")
+       ⚠️ **이게 이 함수에서 제일 중요한 검증이다.** 토큰이 '진짜'인지만 보면 부족하다 —
+          아무 앱에서 발급된 카카오 토큰도 진짜이기 때문이다. 이 확인이 없으면
+          **남의 앱 사용자가 우리 서버에 로그인할 수 있다.**
+          `KAKAO_APP_ID`가 비어 있으면 이 호출을 건너뛰되 `logger.warning`을 남긴다
+          (개발 편의 — 위 `verify_google()`이 같은 패턴이니 그대로 따르면 된다).
 
-    data = res.json()
-    kakao_id = data.get("id")
-    if kakao_id is None:
-        raise _invalid_token("카카오 응답에 사용자 식별자가 없습니다.")
+    ② `KAKAO_USER_ME_URL` — 사용자 정보 조회
+       헤더 동일. 필요한 항목만 요청한다(안 쓰는 개인정보는 애초에 안 받는다):
+       `params={"property_keys": '["kakao_account.email","kakao_account.profile"]'}`
+       응답 `{"id":3812947, "kakao_account":{"email":"...", "is_email_verified":true,
+                                             "profile":{"nickname":"은서"}}}`
 
-    account = data.get("kakao_account") or {}
-    profile = account.get("profile") or {}
-
-    # ⚠️ 카카오는 이메일이 **선택 동의**다. 동의 안 하면 아예 안 온다 → email=None 정상 경로.
-    #    게다가 사업자 심사를 통과해야 이메일 항목을 켤 수 있어, 개발 중엔 대개 없다.
-    email = account.get("email")
-    email_verified = bool(account.get("is_email_verified")) and bool(email)
-
+    ## 돌려줄 것
+    ```python
     return SocialProfile(
         provider=AuthProvider.kakao,
-        provider_user_id=str(kakao_id),
-        email=email,
+        provider_user_id=str(kakao_id),   # ★ 문자열로.
+        email=email,                      # 없을 수 있다 (아래 주의사항)
         email_verified=email_verified,
         nickname=profile.get("nickname"),
+    )
+    ```
+    이것만 돌려주면 나머지는 **이미 다 되어 있다** — `service.social_login()`이
+    회원 조회·자동가입·토큰 발급을 알아서 한다(구글과 공용 코드).
+    그다음 `router.py`의 표시된 자리에 엔드포인트 4줄만 추가하면 끝이다.
+
+    ★ 사람을 알아보는 열쇠는 **이메일이 아니라 `(제공자, provider_user_id)`** 다.
+      이메일은 사용자가 카카오에서 바꿀 수 있지만 id는 바뀌지 않기 때문이다.
+
+    ## 주의할 점
+    · **카카오 이메일은 선택 동의**라 아예 안 올 수 있다 → `email=None`이 **정상 경로**다.
+      게다가 사업자 심사를 통과해야 이메일 항목을 켤 수 있어 개발 중엔 대개 없다.
+      계약서 §2.3과 프론트 체크리스트에도 "null 가능"으로 명시돼 있다.
+    · 토큰이 위조·만료면 `_invalid_token(...)` → **401**
+    · 카카오 서버가 죽었으면 `_provider_down("카카오")` → **502**
+      (401로 주면 앱이 '로그인 실패'로 오해해 사용자를 로그아웃시킨다)
+    · `httpx.AsyncClient(timeout=settings.SOCIAL_API_TIMEOUT)`를 쓴다.
+
+    구현 예시는 바로 위 `verify_google()`을 보면 된다 — 구조가 거의 같다.
+    """
+    raise NotImplementedError(
+        "카카오 로그인은 아직 구현되지 않았습니다. "
+        "app/features/auth/social.py의 verify_kakao() 주석을 참고해 구현해 주세요."
     )

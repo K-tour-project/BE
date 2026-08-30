@@ -10,7 +10,7 @@
 | 1 | 프로젝트 뼈대 + `/health` | ✅ |
 | 2 | DB 연결 + Alembic + 모델(최소 7테이블) | ✅ |
 | **2.5** | **스키마 확장 + 실데이터 적재(CSV 13,761행)** | ✅ **완료 (2026-08-15)** |
-| **3** | **회원가입/로그인/로그아웃 (일반 + 구글·카카오)** | ✅ **완료 (2026-08-22)** |
+| **3** | **회원가입/로그인/로그아웃 (일반 + 구글)** | ✅ **완료 (2026-08-22)** |
 | **4** | **place-detail (TourAPI 실시간 + `api_call_logs` 입증)** ⚠️합격핵심 | ✅ **완료 (2026-08-16)** |
 | **5** | **검색·지도 엔드포인트 (8종)** | ✅ **완료 (2026-08-15)** |
 | 6 | 코스 추천 엔진 | ⬜ |
@@ -91,6 +91,10 @@ app/
 
 ## 3단계 완료 — 인증 (2026-08-22)
 
+> **⚠️ 카카오 로그인은 윤영 담당** (2026-08-22 분담) — 지도 API 때문에 카카오 개발자센터 앱을
+> 이미 만들어 둔 쪽이 콘솔·앱 SDK·서버 엔드포인트까지 맡는다. 서버엔 **자리와 안내 주석만** 있고
+> `POST /auth/kakao`는 없다. 공용 부분(`service.social_login`·`SocialProfile`·enum·설정값)은 준비됨.
+
 **설계 결정 — 왜 토큰이 2개인가.** JWT는 서버가 저장하지 않고 서명만 검증한다. 빠른 대신
 **발급 후 취소가 불가능**해서 로그아웃 버튼이 무력해진다. 그래서 역할을 쪼갰다.
 
@@ -110,11 +114,11 @@ app/
 | `app/core/security.py` — JWT 2종 · refresh 해시 · bcrypt · 인증코드 | ✅ |
 | `app/deps/get_current_user` + `CurrentUser`·`OptionalUser` 별칭 | ✅ |
 | 마이그레이션 `9a1c7d2e5b40` — enum `local` 추가 · users 확장 · 테이블 2개 | ✅ |
-| 엔드포인트 **10종** 실호출 검증 [`scripts/check_auth.py`](./scripts/check_auth.py) **38/38 통과** | ✅ |
+| 엔드포인트 **9종** 실호출 검증 [`scripts/check_auth.py`](./scripts/check_auth.py) **37/37 통과** | ✅ |
 | 실제 메일 발송(SMTP 계정) | 🔶 미설정 — `dev_code`로 개발 가능 |
-| `GOOGLE_CLIENT_ID`·`KAKAO_APP_ID` | 🔶 미설정 — **배포 전 필수** |
+| `GOOGLE_CLIENT_ID` (구글 웹 클라이언트 ID) | 🔶 미설정 — **배포 전 필수** |
 
-**엔드포인트 10종**
+**엔드포인트 9종** (+ 카카오 1종은 윤영 담당)
 
 | 경로 | 역할 |
 |---|---|
@@ -123,7 +127,7 @@ app/
 | `POST /auth/signup` | 회원가입 + 즉시 토큰 발급 `201` |
 | `POST /auth/login` | 이메일+비밀번호 로그인 |
 | `POST /auth/google` | 구글 `id_token` 검증 → 자동 가입/로그인 |
-| `POST /auth/kakao` | 카카오 `access_token` 검증 → 자동 가입/로그인 |
+| ~~`POST /auth/kakao`~~ | **윤영 담당 — 미구현** (자리·안내 주석만 있음) |
 | `POST /auth/refresh` | access 재발급 (**refresh 회전**) |
 | `POST /auth/logout` | 이 기기 refresh 폐기 (멱등) |
 | `POST /auth/logout-all` 🔒 | 모든 기기 로그아웃 |
@@ -240,11 +244,11 @@ app/
 - **엔드포인트 9종 동작**: 5단계 8종 + `GET /places/{id}`.
 - **바로 다음**: 사전매칭 배치 완주 — `python -m scripts.match_tour_places --limit 50`을
   하루 여러 번 나눠 돌려 인기 촬영지 300~500곳을 채운다(현재 11곳, 일 1,000건 한도).
-- **3단계 완료(2026-08-22)**: 인증 10종. 위 「3단계 완료」 절 참고.
+- **3단계 완료(2026-08-22)**: 인증 9종(카카오는 윤영 담당으로 이관). 위 「3단계 완료」 절 참고.
   `deps/CurrentUser`가 생겨 6단계 코스 저장에 바로 `🔒`를 붙일 수 있다.
 - **알려진 갭**
   - **pytest가 0개** — 검증은 실호출 스크립트([`check_tour_api.py`](./scripts/check_tour_api.py) ·
-    [`check_auth.py`](./scripts/check_auth.py) 38케이스)로만 해왔다. 8단계에서 pytest 도입 필요.
+    [`check_auth.py`](./scripts/check_auth.py) 37케이스)로만 해왔다. 8단계에서 pytest 도입 필요.
   - **소셜 로그인 정상 경로 미검증** — 앱에 카카오/구글 SDK가 붙어야 확인 가능. 현재는
     위조 토큰이 401로 거부되는 것까지만 확인됨.
   - **`GOOGLE_CLIENT_ID`·`KAKAO_APP_ID` 미설정** — 비어 있으면 "이 토큰이 우리 앱 것인가"
