@@ -147,7 +147,7 @@ app/
 | 유저 테이블 | 한 테이블 + CHECK 제약 | `courses.user_id` FK가 가입 경로별로 갈라지면 안 됨 |
 
 **⚠️ 남은 것**
-- `.env`에 `GOOGLE_CLIENT_ID`·`KAKAO_APP_ID`가 비어 있으면 **앱 소속 검증을 건너뛴다**
+- `.env`에 `KAKAO_APP_ID`가 비어 있으면 **앱 소속 검증을 건너뛴다**
   (서버 로그에 경고 출력). 배포 전 반드시 채운다.
 - SMTP 미설정 상태 — `send-code` 응답의 `dev_code`와 서버 로그로 코드가 나온다.
   Gmail 앱 비밀번호를 `.env`에 넣으면 코드 수정 없이 실제 발송으로 전환된다.
