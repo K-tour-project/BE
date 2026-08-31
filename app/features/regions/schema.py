@@ -10,48 +10,35 @@ from app.shared.schema import Location
 GeoJsonGeometry = dict[str, Any]
 
 
-class RegionCandidate(BaseModel):
-    """`GET /regions/resolve?name=`."""
+class RegionOption(BaseModel):
+    """Lightweight region option for Android selection UI."""
 
     region_id: int
     name: str
     full_name: str
-    level: str  # sido | sigungu
+    level: str  # 1=sido, 2=sigungu
+    parent_region_id: int | None = None
+    bjd_cd: str
+    has_children: bool = False
     centroid: Location | None = None
-    boundary: GeoJsonGeometry | None = None
+
+
+class RegionCandidate(RegionOption):
+    """`GET /regions/resolve?name=` item."""
 
 
 class RegionResolveResponse(BaseModel):
     candidates: list[RegionCandidate]
 
 
-class RegionChild(BaseModel):
-    region_id: int
-    name: str
-    level: str
-    centroid: Location | None = None
-    boundary: GeoJsonGeometry | None = None
-
-
-class RegionNode(BaseModel):
-    """`GET /regions`."""
-
-    region_id: int
-    name: str
-    level: str
-    parent_region_id: int | None = None
-    centroid: Location | None = None
-    boundary: GeoJsonGeometry | None = None
-    children: list[RegionChild] | None = None
-
-
 class RegionBoundaryResponse(BaseModel):
-    """`GET /regions/{region_id}/boundary`."""
+    """Region boundary as GeoJSON geometry."""
 
     region_id: int
     name: str
     full_name: str
     level: str
     parent_region_id: int | None = None
+    bjd_cd: str
     centroid: Location | None = None
     boundary: GeoJsonGeometry

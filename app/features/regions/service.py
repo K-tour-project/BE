@@ -4,18 +4,21 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import case, func, or_, select
+from geoalchemy2 import Geography
+from sqlalchemy import case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.features.regions.schema import (
     RegionBoundaryResponse,
     RegionCandidate,
-    RegionChild,
-    RegionNode,
+    RegionOption,
 )
 from app.models import Region
 from app.shared.schema import Location, RegionRef
+
+SIDO_LEVEL = "1"
+SIGUNGU_LEVEL = "2"
 
 
 def full_name(parent_name: str | None, name: str) -> str:
@@ -35,12 +38,16 @@ async def region_scope_ids(db: AsyncSession, region_id: int) -> list[int]:
     return [region_id, *children]
 
 
+def _centroid_point():
+    return func.ST_PointOnSurface(Region.boundary)
+
+
 def _centroid_lat():
-    return func.ST_Y(func.ST_PointOnSurface(Region.boundary)).label("lat")
+    return func.ST_Y(_centroid_point()).label("lat")
 
 
 def _centroid_lng():
-    return func.ST_X(func.ST_PointOnSurface(Region.boundary)).label("lng")
+    return func.ST_X(_centroid_point()).label("lng")
 
 
 def _boundary_geojson():
@@ -59,34 +66,93 @@ def _load_geojson(raw: str | None) -> dict[str, Any] | None:
     return json.loads(raw)
 
 
-def _base_region_columns(parent, include_boundary: bool = False):
-    columns = [
+def _option_columns(parent, child_count):
+    return [
         Region.region_id,
         Region.name,
         Region.level,
         Region.parent_id,
+        Region.bjd_cd,
         parent.name.label("parent_name"),
+        child_count.label("child_count"),
         _centroid_lat(),
         _centroid_lng(),
     ]
-    if include_boundary:
-        columns.append(_boundary_geojson())
-    return columns
 
 
-async def resolve_regions(
-    db: AsyncSession,
-    name: str,
-    limit: int = 20,
-    include_boundary: bool = False,
-) -> list[RegionCandidate]:
+def _child_count_subquery():
+    child = Region.__table__.alias("child")
+    return (
+        select(func.count())
+        .select_from(child)
+        .where(child.c.parent_id == Region.region_id)
+        .scalar_subquery()
+    )
+
+
+def _to_option(row) -> RegionOption:
+    return RegionOption(
+        region_id=row.region_id,
+        name=row.name,
+        full_name=full_name(row.parent_name, row.name),
+        level=row.level,
+        parent_region_id=row.parent_id,
+        bjd_cd=row.bjd_cd,
+        has_children=(row.child_count or 0) > 0,
+        centroid=_location(row.lat, row.lng),
+    )
+
+
+async def list_sidos(db: AsyncSession) -> tuple[list[RegionOption], int]:
+    parent = aliased(Region)
+    child_count = _child_count_subquery()
+    rows = (
+        await db.execute(
+            select(*_option_columns(parent, child_count))
+            .select_from(Region)
+            .outerjoin(parent, parent.region_id == Region.parent_id)
+            .where(Region.level == SIDO_LEVEL)
+            .order_by(Region.name)
+        )
+    ).all()
+    items = [_to_option(row) for row in rows]
+    return items, len(items)
+
+
+async def list_children(db: AsyncSession, sido_id: int) -> tuple[list[RegionOption], int] | None:
+    exists = await db.scalar(
+        select(func.count()).select_from(Region).where(
+            Region.region_id == sido_id,
+            Region.level == SIDO_LEVEL,
+        )
+    )
+    if not exists:
+        return None
+
+    parent = aliased(Region)
+    child_count = _child_count_subquery()
+    rows = (
+        await db.execute(
+            select(*_option_columns(parent, child_count))
+            .select_from(Region)
+            .outerjoin(parent, parent.region_id == Region.parent_id)
+            .where(Region.parent_id == sido_id)
+            .order_by(Region.name)
+        )
+    ).all()
+    items = [_to_option(row) for row in rows]
+    return items, len(items)
+
+
+async def resolve_regions(db: AsyncSession, name: str, limit: int = 20) -> list[RegionCandidate]:
     name = name.strip()
     if not name:
         return []
 
     parent = aliased(Region)
+    child_count = _child_count_subquery()
     stmt = (
-        select(*_base_region_columns(parent, include_boundary))
+        select(*_option_columns(parent, child_count))
         .select_from(Region)
         .outerjoin(parent, parent.region_id == Region.parent_id)
     )
@@ -105,35 +171,46 @@ async def resolve_regions(
         await db.execute(
             stmt.order_by(
                 case((Region.name == tokens[-1], 0), else_=1),
-                case((Region.level == "sigungu", 0), else_=1),
+                case((Region.level == SIGUNGU_LEVEL, 0), else_=1),
                 Region.name,
             ).limit(limit)
         )
     ).all()
 
-    return [
-        RegionCandidate(
-            region_id=r.region_id,
-            name=r.name,
-            full_name=full_name(r.parent_name, r.name),
-            level=r.level,
-            centroid=_location(r.lat, r.lng),
-            boundary=_load_geojson(getattr(r, "boundary_geojson", None)),
-        )
-        for r in rows
-    ]
+    return [RegionCandidate(**_to_option(row).model_dump()) for row in rows]
 
 
 async def get_region_boundary(db: AsyncSession, region_id: int) -> RegionBoundaryResponse | None:
     parent = aliased(Region)
     row = (
         await db.execute(
-            select(*_base_region_columns(parent, include_boundary=True))
+            select(
+                Region.region_id,
+                Region.name,
+                Region.level,
+                Region.parent_id,
+                Region.bjd_cd,
+                parent.name.label("parent_name"),
+                _centroid_lat(),
+                _centroid_lng(),
+                _boundary_geojson(),
+            )
             .select_from(Region)
             .outerjoin(parent, parent.region_id == Region.parent_id)
             .where(Region.region_id == region_id)
         )
     ).first()
+    return _boundary_response(row)
+
+
+async def get_region_boundary_by_name(db: AsyncSession, name: str) -> RegionBoundaryResponse | None:
+    matches = await resolve_regions(db, name, limit=2)
+    if len(matches) != 1:
+        return None
+    return await get_region_boundary(db, matches[0].region_id)
+
+
+def _boundary_response(row) -> RegionBoundaryResponse | None:
     if row is None:
         return None
 
@@ -147,6 +224,7 @@ async def get_region_boundary(db: AsyncSession, region_id: int) -> RegionBoundar
         full_name=full_name(row.parent_name, row.name),
         level=row.level,
         parent_region_id=row.parent_id,
+        bjd_cd=row.bjd_cd,
         centroid=_location(row.lat, row.lng),
         boundary=boundary,
     )
@@ -158,58 +236,5 @@ async def resolve_region_exists(db: AsyncSession, region_id: int) -> bool:
     ) > 0
 
 
-async def list_regions(
-    db: AsyncSession,
-    flat: bool,
-    include_boundary: bool = False,
-) -> tuple[list[RegionNode], int]:
-    columns = [
-        Region.region_id,
-        Region.name,
-        Region.level,
-        Region.parent_id,
-        _centroid_lat(),
-        _centroid_lng(),
-    ]
-    if include_boundary:
-        columns.append(_boundary_geojson())
-
-    rows = (
-        await db.execute(select(*columns).order_by(Region.level.desc(), Region.name))
-    ).all()
-
-    def boundary(r) -> dict[str, Any] | None:
-        return _load_geojson(getattr(r, "boundary_geojson", None))
-
-    def child(r) -> RegionChild:
-        return RegionChild(
-            region_id=r.region_id,
-            name=r.name,
-            level=r.level,
-            centroid=_location(r.lat, r.lng),
-            boundary=boundary(r),
-        )
-
-    def node(r, children=None) -> RegionNode:
-        return RegionNode(
-            region_id=r.region_id,
-            name=r.name,
-            level=r.level,
-            parent_region_id=r.parent_id,
-            centroid=_location(r.lat, r.lng),
-            boundary=boundary(r),
-            children=children,
-        )
-
-    if flat:
-        items = [node(r) for r in rows]
-        return items, len(items)
-
-    kids: dict[int, list[RegionChild]] = {}
-    for r in rows:
-        if r.level == "sigungu" and r.parent_id:
-            kids.setdefault(r.parent_id, []).append(child(r))
-
-    sidos = [r for r in rows if r.level == "sido"]
-    items = [node(r, kids.get(r.region_id, [])) for r in sorted(sidos, key=lambda x: x.name)]
-    return items, len(items)
+def boundary_point_for_distance():
+    return cast(_centroid_point(), Geography)
