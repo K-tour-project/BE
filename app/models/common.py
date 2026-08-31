@@ -21,8 +21,13 @@ class ContentType(str, enum.Enum):
 
 
 class AuthProvider(str, enum.Enum):
-    """소셜 로그인 제공자."""
+    """가입·로그인 경로. `local`은 이메일+비밀번호 자체 회원가입이다.
 
+    ⚠️ PostgreSQL 네이티브 enum이라 값 추가는 `ALTER TYPE auth_provider ADD VALUE`가 필요하다
+       (마이그레이션 `9a1c7d2e5b40`에서 `local`을 추가했다). 코드에만 넣으면 DB가 거부한다.
+    """
+
+    local = "local"    # 이메일 + 비밀번호
     google = "google"
     kakao = "kakao"
 

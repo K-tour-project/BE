@@ -13,6 +13,7 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     Enum as SAEnum,
+    Index,
     Integer,
     Numeric,
     String,
@@ -56,4 +57,10 @@ class Content(Base):
 
     mappings: Mapped[list["ContentPlaceMapping"]] = relationship(  # noqa: F821
         "ContentPlaceMapping", back_populates="content", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        # 배열 컬럼을 '이 장르 포함' 으로 거르려면 GIN이어야 한다(B-tree로는 안 됨).
+        # ⚠️ 모델에 선언해두지 않으면 alembic autogenerate가 '군더더기'로 보고 DROP을 만든다.
+        Index("ix_contents_genre_tags", "genre_tags", postgresql_using="gin"),
     )
