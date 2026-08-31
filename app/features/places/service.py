@@ -20,7 +20,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from geoalchemy2 import Geometry
+from geoalchemy2 import Geography, Geometry
 from sqlalchemy import cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -62,7 +62,7 @@ def _place_select():
         )
         .select_from(Place)
         .outerjoin(Region, Region.region_id == Place.region_id)
-        .outerjoin(parent, parent.region_id == Region.parent_region_id)
+        .outerjoin(parent, parent.region_id == Region.parent_id)
     )
 
 
@@ -367,7 +367,11 @@ async def places_near_region(
 ) -> tuple[list[PlaceOnMap], int] | None:
     """지역 중심점 반경 내 장소. 중심점이 없으면 None. (`GET /places?near=`)"""
     centroid = (
-        await db.execute(select(Region.centroid).where(Region.region_id == region_id))
+        await db.execute(
+            select(cast(func.ST_PointOnSurface(Region.boundary), Geography)).where(
+                Region.region_id == region_id
+            )
+        )
     ).scalar_one_or_none()
     if centroid is None:
         return None
