@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""  # 비우면 SMTP_USER를 발신자로 쓴다
     SMTP_FROM_NAME: str = "Every Trip"
     # 인증코드 정책 — 짧은 수명 + 시도 제한이 6자리 코드를 지키는 두 축이다.
-    EMAIL_CODE_EXPIRE_MINUTES: int = 10
+    EMAIL_CODE_EXPIRE_MINUTES: int = 3
     EMAIL_CODE_MAX_ATTEMPTS: int = 5
     EMAIL_CODE_RESEND_COOLDOWN_SECONDS: int = 60
     # 코드 확인 후 이 시간 안에 회원가입을 마쳐야 한다(인증만 해두고 방치하는 것 방지).
