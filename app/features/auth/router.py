@@ -27,6 +27,7 @@ from app.features.auth.schema import (
     EmailVerified,
     EmailVerifyRequest,
     GoogleLoginRequest,
+    KakaoLoginRequest,
     LoginRequest,
     LogoutRequest,
     MessageOut,
@@ -117,24 +118,18 @@ async def google_login(body: GoogleLoginRequest, request: Request, db: DbSession
     return await service.social_login(db, profile, _ua(request))
 
 
-# ── 카카오 로그인 — 윤영 담당 (2026-08-22 분담) ──────────────────────────────
-#
-# 카카오는 지도 API 때문에 개발자센터 앱을 이미 만들어 둔 쪽에서 로그인까지 맡기로 했다.
-# 아래 자리에 엔드포인트 하나만 추가하면 된다. **나머지는 전부 준비돼 있다.**
-#
-#     @router.post("/kakao", response_model=TokenPair)
-#     async def kakao_login(body: KakaoLoginRequest, request: Request, db: DbSession):
-#         profile = await social.verify_kakao(body.access_token)   # ← 이것만 구현하면 됨
-#         return await service.social_login(db, profile, _ua(request))
-#
-# 이미 되어 있는 것 (건드릴 필요 없음)
-#   · `schema.KakaoLoginRequest`      요청 형태 {"access_token": "..."}  ← 계약서 §2.3
-#   · `social.SocialProfile`          verify_kakao가 돌려줘야 할 형태
-#   · `service.social_login()`        회원 조회/자동가입 + 토큰 발급 (구글과 공용)
-#   · `AuthProvider.kakao`            DB enum
-#   · `settings.KAKAO_APP_ID`         .env 설정값
-#
-# 구현할 것은 `app/features/auth/social.py`의 `verify_kakao()` 하나다. 거기 주석 참고.
+@router.post("/kakao", response_model=TokenPair)
+async def kakao_login(body: KakaoLoginRequest, request: Request, db: DbSession):
+    """카카오 로그인. 앱이 카카오 SDK에서 받은 **access_token**을 넘긴다.
+
+    처음이면 회원이 자동 생성된다. 이메일 제공 동의를 받지 못한 사용자도 가입할 수 있다.
+
+    - `401` 카카오 토큰이 위조·만료됐거나 다른 앱용임
+    - `409` 제공된 카카오 이메일이 이미 다른 경로로 가입돼 있음
+    - `502` 카카오 서버에 연결 실패
+    """
+    profile = await social.verify_kakao(body.access_token)
+    return await service.social_login(db, profile, _ua(request))
 
 
 # ──────────────────────────────── 토큰 갱신 · 로그아웃 ───────────────────────────────
