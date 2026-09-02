@@ -2,7 +2,7 @@
 
 ## 우리가 쓰는 방식 — 앱 SDK 토큰 전달
 ```
-[앱] 카카오/구글 SDK로 로그인 → 토큰 받음
+[앱] 구글/카카오 SDK로 로그인 → 토큰 받음
   ↓  POST /auth/kakao {"access_token": "..."}
 [우리 서버] → [카카오/구글] "이 토큰 주인 누구야?"
   ↓
@@ -112,8 +112,11 @@ async def verify_google(id_token: str) -> SocialProfile:
 
 
 async def verify_kakao(access_token: str) -> SocialProfile:
-    
-    """카카오 액세스 토큰을 검증하고 프로필을 돌려준다."""
+    """카카오 액세스 토큰을 검증하고 프로필을 돌려준다.
+
+    카카오 access token은 사용자 정보가 들어 있지 않은 불투명 토큰이라,
+    토큰 정보 조회로 앱과 사용자 식별자를 검증한 뒤 사용자 정보를 따로 조회한다.
+    """
     headers = {"Authorization": f"Bearer {access_token}"}
 
     try:
@@ -163,7 +166,7 @@ async def verify_kakao(access_token: str) -> SocialProfile:
     if kakao_id is None:
         raise _invalid_token("카카오 응답에 사용자 식별자가 없습니다.")
 
-    # 토큰 정보와 사용자 정보가 같은 회원을 가리키는지도 확인한다.
+    # 토큰 정보와 사용자 정보가 같은 회원을 가리키는지 한 번 더 확인한다.
     token_user_id = token_data.get("id")
     if token_user_id is not None and str(token_user_id) != str(kakao_id):
         raise _invalid_token("카카오 토큰의 사용자 정보가 일치하지 않습니다.")

@@ -7,8 +7,7 @@
 
     [회원가입]  send-code → verify-code → signup ──┐
     [일반로그인] login ────────────────────────────┤
-    [소셜로그인] google ───────────────────────────┴→ access(1h) + refresh(30d)
-                 (kakao는 윤영 담당 — 아래 표시된 자리에 추가)
+    [소셜로그인] google / kakao ───────────────────┴→ access(1h) + refresh(30d)
                                                         │
                                             access 만료 → refresh → 새 한 쌍
                                                         │
@@ -55,7 +54,7 @@ async def send_email_code(body: EmailCodeRequest, db: DbSession):
     - `409` 이미 가입된 이메일 (어느 경로로 가입했는지 안내 문구에 담긴다)
     - `429` 재발송 쿨다운(60초) 중
 
-    ⚠️ SMTP 미설정이면 메일 대신 **서버 로그에 코드를 찍고 응답의 `dev_code`에도 담는다.**
+    SMTP 미설정이면 메일 대신 **서버 로그에 코드를 찍고 응답의 `dev_code`에도 담는다.**
        메일 계정 없이 개발·시연하기 위한 장치이며, `.env`에 SMTP를 채우면 자동으로 사라진다.
     """
     expires_in, dev_code = await service.send_email_code(db, body.email)
@@ -154,7 +153,7 @@ async def logout(body: LogoutRequest, db: DbSession):
 
     이미 없는 토큰이어도 `200`이다(멱등). 앱은 이 호출 후 저장해 둔 두 토큰을 모두 지운다.
 
-    ⚠️ 남아 있는 access는 최대 1시간 더 유효하다. 즉시 전부 끊으려면 `/auth/logout-all`.
+    남아 있는 access는 최대 1시간 더 유효하다. 즉시 전부 끊으려면 `/auth/logout-all`.
     """
     await service.revoke_token(db, body.refresh_token)
     return MessageOut(message="로그아웃되었습니다.")
@@ -162,12 +161,12 @@ async def logout(body: LogoutRequest, db: DbSession):
 
 @router.post("/logout-all", response_model=MessageOut)
 async def logout_all(user: CurrentUser, db: DbSession):
-    """🔒 모든 기기에서 로그아웃. 폰을 잃어버렸을 때 쓰는 기능이다."""
+    """인증 필요. 모든 기기에서 로그아웃한다."""
     count = await service.revoke_all_tokens(db, user.user_id)
     return MessageOut(message=f"{count}개 기기에서 로그아웃되었습니다.")
 
 
 @router.get("/me", response_model=UserOut)
 async def me(user: CurrentUser):
-    """🔒 내 정보. 앱 시작 시 토큰이 아직 유효한지 확인하는 용도로도 쓴다."""
+    """인증 필요. 내 정보를 조회한다. 앱 시작 시 토큰 유효성 확인에도 쓴다."""
     return UserOut.model_validate(user)
