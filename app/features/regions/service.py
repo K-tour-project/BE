@@ -112,7 +112,7 @@ async def list_sidos(db: AsyncSession) -> tuple[list[RegionOption], int]:
             .select_from(Region)
             .outerjoin(parent, parent.region_id == Region.parent_id)
             .where(Region.level == SIDO_LEVEL)
-            .order_by(Region.name)
+            .order_by(Region.region_id.asc())
         )
     ).all()
     items = [_to_option(row) for row in rows]
@@ -137,7 +137,7 @@ async def list_children(db: AsyncSession, sido_id: int) -> tuple[list[RegionOpti
             .select_from(Region)
             .outerjoin(parent, parent.region_id == Region.parent_id)
             .where(Region.parent_id == sido_id)
-            .order_by(Region.name)
+            .order_by(Region.region_id.asc())
         )
     ).all()
     items = [_to_option(row) for row in rows]
