@@ -11,7 +11,6 @@ from app.features.regions import service
 from app.features.regions.schema import (
     RegionBoundaryResponse,
     RegionOption,
-    RegionResolveResponse,
 )
 from app.shared.schema import Page
 
@@ -22,26 +21,6 @@ router = APIRouter(prefix="/regions", tags=["regions"])
 async def list_sidos(db: AsyncSession = Depends(get_db)):
     items, total = await service.list_sidos(db)
     return Page[RegionOption](items=items, total=total)
-
-
-@router.get("/resolve", response_model=RegionResolveResponse)
-async def resolve_region(
-    name: str = Query(..., min_length=1, description="Region name, e.g. Seoul Jung-gu"),
-    db: AsyncSession = Depends(get_db),
-):
-    candidates = await service.resolve_regions(db, name)
-    return RegionResolveResponse(candidates=candidates)
-
-
-@router.get("/boundary", response_model=RegionBoundaryResponse)
-async def get_region_boundary_by_name(
-    name: str = Query(..., min_length=1, description="Region name, e.g. Seoul Jung-gu"),
-    db: AsyncSession = Depends(get_db),
-):
-    region = await service.get_region_boundary_by_name(db, name)
-    if region is None:
-        raise HTTPException(status_code=404, detail="Region boundary not found or ambiguous.")
-    return region
 
 
 @router.get("/{sido_id}/children", response_model=Page[RegionOption])
