@@ -108,8 +108,9 @@ def main() -> int:
             return 1
         signed = r.json()
         check(
-            "가입 응답에 두 토큰 + 사용자 정보",
-            {"access_token", "refresh_token", "expires_in", "user"} <= signed.keys(),
+            "가입 응답에 토큰 없음 + 사용자 정보",
+            not {"access_token", "refresh_token", "expires_in"} & signed.keys()
+            and {"message", "user"} <= signed.keys(),
         )
         check(
             "비밀번호 해시가 응답에 새지 않음",
@@ -143,6 +144,10 @@ def main() -> int:
         if r.status_code != 200:
             return 1
         tokens = r.json()
+        check(
+            "로그인 응답에 두 토큰 + 사용자 정보",
+            {"access_token", "refresh_token", "expires_in", "user"} <= tokens.keys(),
+        )
         access, refresh = tokens["access_token"], tokens["refresh_token"]
         check("access 수명이 1시간(3600초)", tokens["expires_in"] == 3600, str(tokens["expires_in"]))
 

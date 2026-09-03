@@ -7,7 +7,7 @@
 
     ① POST /auth/email/send-code   {email}         → 6자리 코드 메일 발송
     ② POST /auth/email/verify-code {email, code}   → 확인, 30분짜리 통과권 부여
-    ③ POST /auth/signup  {email, password, nickname} → 계정 생성 + 토큰 발급
+    ③ POST /auth/signup  {email, password, nickname} → 계정 생성
 
 ②까지는 `users` 행을 만들지 않는다. 인증을 중간에 포기한 "유령 계정"이 쌓이지 않게 하고,
 이메일 중복 검사도 실제 가입 시점에 한 번만 하면 되기 때문이다.
@@ -273,8 +273,7 @@ async def signup(
     email: str,
     password: str,
     nickname: str,
-    user_agent: str | None = None,
-) -> TokenPair:
+) -> UserOut:
     """③ 회원가입. ②의 통과권이 살아 있어야만 성공한다."""
     email = _normalize_email(email)
 
@@ -322,7 +321,7 @@ async def signup(
 
     await db.commit()
     await db.refresh(user)
-    return await issue_tokens(db, user, user_agent)
+    return UserOut.model_validate(user)
 
 
 async def login(

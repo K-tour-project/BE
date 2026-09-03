@@ -32,6 +32,7 @@ from app.features.auth.schema import (
     MessageOut,
     RefreshRequest,
     SignupRequest,
+    SignupResponse,
     TokenPair,
     UserOut,
 )
@@ -77,17 +78,16 @@ async def verify_email_code(body: EmailVerifyRequest, db: DbSession):
 # ───────────────────────────── 회원가입 ② · 일반 로그인 ────────────────────────────
 
 
-@router.post("/signup", response_model=TokenPair, status_code=status.HTTP_201_CREATED)
-async def signup(body: SignupRequest, request: Request, db: DbSession):
-    """회원가입. 성공하면 **바로 로그인 상태**가 된다(토큰을 함께 준다).
+@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
+async def signup(body: SignupRequest, db: DbSession):
+    """회원가입. 성공하면 계정만 생성하고 토큰은 발급하지 않는다.
 
     - `403` 이메일 인증을 아직 안 했거나 인증이 만료됨
     - `409` 이미 가입된 이메일
     - `422` 비밀번호 규칙(8자 이상, 영문+숫자) 미달 — FastAPI가 자동으로 낸다
     """
-    return await service.signup(
-        db, body.email, body.password, body.nickname, _ua(request)
-    )
+    user = await service.signup(db, body.email, body.password, body.nickname)
+    return SignupResponse(message="회원가입이 완료되었습니다.", user=user)
 
 
 @router.post("/login", response_model=TokenPair)

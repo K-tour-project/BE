@@ -130,8 +130,15 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SignupResponse(BaseModel):
+    """`POST /auth/signup` — 계정 생성 결과. 토큰은 로그인 API에서만 발급한다."""
+
+    message: str
+    user: UserOut
+
+
 class TokenPair(BaseModel):
-    """로그인·가입·재발급의 공통 응답.
+    """로그인·소셜 로그인·재발급의 공통 응답.
 
     앱은 두 토큰을 **안전한 저장소**에 넣는다(안드로이드 EncryptedSharedPreferences /
     iOS Keychain / RN Keychain). 일반 SharedPreferences·AsyncStorage는 피한다.
