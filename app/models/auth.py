@@ -44,6 +44,7 @@ class RefreshToken(Base, CreatedAtMixin):
     )
     # SHA-256 hex 64자. 원문은 발급 순간 응답에 한 번 실리고 서버엔 남지 않는다.
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    device_id_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
@@ -59,6 +60,7 @@ class RefreshToken(Base, CreatedAtMixin):
     __table_args__ = (
         # 로그아웃 전체(한 유저의 살아있는 토큰 모두 폐기) 질의용
         Index("ix_refresh_tokens_user_id", "user_id"),
+        Index("ix_refresh_tokens_user_device", "user_id", "device_id_hash"),
     )
 
 

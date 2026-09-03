@@ -91,6 +91,7 @@ class LoginRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=200)
+    device_id: str = Field(..., min_length=8, max_length=200)
 
 
 # ─────────────────────────────────── 소셜 로그인 ─────────────────────────────────
@@ -100,6 +101,7 @@ class GoogleLoginRequest(BaseModel):
     """`POST /auth/google` — 앱이 구글 SDK에서 받은 **ID 토큰**(JWT)."""
 
     id_token: str = Field(..., min_length=1)
+    device_id: str = Field(..., min_length=8, max_length=200)
 
 
 class KakaoLoginRequest(BaseModel):
@@ -114,6 +116,7 @@ class KakaoLoginRequest(BaseModel):
     """
 
     access_token: str = Field(..., min_length=1)
+    device_id: str = Field(..., min_length=8, max_length=200)
 
 
 # ─────────────────────────────── 토큰 · 사용자 응답 ───────────────────────────────
@@ -155,6 +158,7 @@ class RefreshRequest(BaseModel):
     """`POST /auth/refresh` — access가 만료됐을 때 앱이 자동으로 호출한다."""
 
     refresh_token: str = Field(..., min_length=1)
+    device_id: str = Field(..., min_length=8, max_length=200)
 
 
 class LogoutRequest(BaseModel):

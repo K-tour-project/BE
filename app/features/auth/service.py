@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import hmac
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -28,6 +29,7 @@ from app.core.security import (
     create_email_code,
     create_refresh_token,
     hash_password,
+    hash_device_id,
     hash_refresh_token,
     verify_email_code,
     verify_password,
@@ -64,7 +66,7 @@ def _normalize_email(email: str) -> str:
 
 
 async def issue_tokens(
-    db: AsyncSession, user: User, user_agent: str | None = None
+    db: AsyncSession, user: User, device_id: str, user_agent: str | None = None
 ) -> TokenPair:
     """로그인 성공 시 access + refresh 한 쌍을 발급한다.
 
@@ -75,6 +77,7 @@ async def issue_tokens(
         RefreshToken(
             user_id=user.user_id,
             token_hash=token_hash,
+            device_id_hash=hash_device_id(device_id),
             expires_at=expires_at,
             user_agent=(user_agent or "")[:200] or None,
         )
@@ -97,7 +100,7 @@ async def issue_tokens(
 
 
 async def rotate_tokens(
-    db: AsyncSession, raw_refresh: str, user_agent: str | None = None
+    db: AsyncSession, raw_refresh: str, device_id: str, user_agent: str | None = None
 ) -> TokenPair:
     """`POST /auth/refresh` — 낡은 refresh를 새 한 쌍으로 바꾼다(회전).
 
@@ -124,12 +127,20 @@ async def rotate_tokens(
     if row.expires_at <= _now():
         raise HTTPException(status_code=401, detail="refresh 토큰이 만료되었습니다.")
 
+    if not hmac.compare_digest(row.device_id_hash, hash_device_id(device_id)):
+        row.revoked_at = _now()
+        await db.commit()
+        raise HTTPException(
+            status_code=401,
+            detail="로그인한 기기와 달라 다시 로그인이 필요합니다.",
+        )
+
     user = await db.get(User, row.user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="탈퇴한 계정입니다.")
 
     row.revoked_at = _now()
-    return await issue_tokens(db, user, user_agent)
+    return await issue_tokens(db, user, device_id, user_agent)
 
 
 async def revoke_token(db: AsyncSession, raw_refresh: str) -> None:
@@ -325,7 +336,11 @@ async def signup(
 
 
 async def login(
-    db: AsyncSession, email: str, password: str, user_agent: str | None = None
+    db: AsyncSession,
+    email: str,
+    password: str,
+    device_id: str,
+    user_agent: str | None = None,
 ) -> TokenPair:
     """이메일 + 비밀번호 로그인."""
     email = _normalize_email(email)
@@ -342,7 +357,7 @@ async def login(
             status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다."
         )
 
-    return await issue_tokens(db, user, user_agent)
+    return await issue_tokens(db, user, device_id, user_agent)
 
 
 # ═══════════════════════════════════ 소셜 로그인 ══════════════════════════════════
@@ -356,7 +371,10 @@ def _fallback_nickname(profile: SocialProfile) -> str:
 
 
 async def social_login(
-    db: AsyncSession, profile: SocialProfile, user_agent: str | None = None
+    db: AsyncSession,
+    profile: SocialProfile,
+    device_id: str,
+    user_agent: str | None = None,
 ) -> TokenPair:
     """소셜 로그인. **처음이면 자동 가입**한다(별도 회원가입 API 없음).
 
@@ -370,7 +388,7 @@ async def social_login(
         )
     )
     if user is not None:
-        return await issue_tokens(db, user, user_agent)
+        return await issue_tokens(db, user, device_id, user_agent)
 
     # 신규 — 같은 이메일이 다른 경로로 이미 쓰이고 있으면 계정이 쪼개지므로 막는다.
     email = _normalize_email(profile.email) if profile.email else None
@@ -403,8 +421,8 @@ async def social_login(
             raise HTTPException(
                 status_code=409, detail="계정 생성에 실패했습니다. 다시 시도해 주세요."
             ) from None
-        return await issue_tokens(db, user, user_agent)
+        return await issue_tokens(db, user, device_id, user_agent)
 
     await db.commit()
     await db.refresh(user)
-    return await issue_tokens(db, user, user_agent)
+    return await issue_tokens(db, user, device_id, user_agent)

@@ -97,6 +97,15 @@ def hash_refresh_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def hash_device_id(device_id: str) -> str:
+    """기기 식별자는 원문을 저장하지 않고 서버 SECRET_KEY로 HMAC 처리한다."""
+    return hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        device_id.strip().encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 # ─────────────────────────────── 이메일 인증코드 ────────────────────────────────
 
 

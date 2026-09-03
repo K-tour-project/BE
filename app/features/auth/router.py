@@ -97,7 +97,9 @@ async def login(body: LoginRequest, request: Request, db: DbSession):
     - `401` 이메일 또는 비밀번호 불일치 (**둘을 구분해 알려주지 않는다**)
     - `409` 그 이메일은 소셜(구글·카카오)로 가입돼 있음 → 해당 버튼으로 로그인
     """
-    return await service.login(db, body.email, body.password, _ua(request))
+    return await service.login(
+        db, body.email, body.password, body.device_id, _ua(request)
+    )
 
 
 # ─────────────────────────────────── 소셜 로그인 ─────────────────────────────────
@@ -114,7 +116,7 @@ async def google_login(body: GoogleLoginRequest, request: Request, db: DbSession
     - `502` 구글 서버에 연결 실패
     """
     profile = await social.verify_google(body.id_token)
-    return await service.social_login(db, profile, _ua(request))
+    return await service.social_login(db, profile, body.device_id, _ua(request))
 
 
 @router.post("/kakao", response_model=TokenPair)
@@ -128,7 +130,7 @@ async def kakao_login(body: KakaoLoginRequest, request: Request, db: DbSession):
     - `502` 카카오 서버에 연결 실패
     """
     profile = await social.verify_kakao(body.access_token)
-    return await service.social_login(db, profile, _ua(request))
+    return await service.social_login(db, profile, body.device_id, _ua(request))
 
 
 # ──────────────────────────────── 토큰 갱신 · 로그아웃 ───────────────────────────────
@@ -144,7 +146,9 @@ async def refresh(body: RefreshRequest, request: Request, db: DbSession):
     - `401` refresh가 없음·만료·이미 사용됨.
       **이미 사용된 토큰이 들어오면 탈취로 간주해 그 계정의 모든 세션을 끊는다.**
     """
-    return await service.rotate_tokens(db, body.refresh_token, _ua(request))
+    return await service.rotate_tokens(
+        db, body.refresh_token, body.device_id, _ua(request)
+    )
 
 
 @router.post("/logout", response_model=MessageOut)

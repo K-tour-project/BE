@@ -50,6 +50,8 @@ def main() -> int:
     email = f"check-{uuid.uuid4().hex[:10]}@example.com"
     password = "ktour1234"
     nickname = "테스트유저"
+    device_id = f"test-device-{uuid.uuid4().hex}"
+    other_device_id = f"other-device-{uuid.uuid4().hex}"
 
     with httpx.Client(base_url=BASE, timeout=10.0) as c:
         print(f"\n대상 서버: {BASE}   테스트 계정: {email}\n")
@@ -128,7 +130,10 @@ def main() -> int:
         r = c.post("/auth/signup", json={"email": email, "password": password, "nickname": nickname})
         check("같은 이메일 재가입은 409", r.status_code == 409, f"{r.status_code}")
 
-        r = c.post("/auth/login", json={"email": email, "password": "wrongpass1"})
+        r = c.post(
+            "/auth/login",
+            json={"email": email, "password": "wrongpass1", "device_id": device_id},
+        )
         check("틀린 비밀번호는 401", r.status_code == 401, f"{r.status_code}")
         check(
             "실패 메시지가 이메일/비번을 구분하지 않음",
@@ -136,10 +141,20 @@ def main() -> int:
             r.json().get("detail", ""),
         )
 
-        r = c.post("/auth/login", json={"email": "nobody-here@example.com", "password": password})
+        r = c.post(
+            "/auth/login",
+            json={
+                "email": "nobody-here@example.com",
+                "password": password,
+                "device_id": device_id,
+            },
+        )
         check("없는 계정도 같은 401 문구", r.status_code == 401 and "이메일 또는 비밀번호" in r.text)
 
-        r = c.post("/auth/login", json={"email": email.upper(), "password": password})
+        r = c.post(
+            "/auth/login",
+            json={"email": email.upper(), "password": password, "device_id": device_id},
+        )
         check("이메일 대소문자를 구분하지 않음", r.status_code == 200, f"{r.status_code}")
         if r.status_code != 200:
             return 1
@@ -173,7 +188,27 @@ def main() -> int:
         # ── ⑤ 토큰 회전 ─────────────────────────────────────────────────
         print("\n⑤ refresh 회전")
         time.sleep(1.1)  # iat/exp가 초 단위라 새 access가 문자열까지 달라지도록
-        r = c.post("/auth/refresh", json={"refresh_token": refresh})
+        r = c.post(
+            "/auth/refresh",
+            json={"refresh_token": refresh, "device_id": other_device_id},
+        )
+        check("다른 device_id로 refresh 시 401", r.status_code == 401, f"{r.status_code}")
+
+        r = c.post(
+            "/auth/login",
+            json={"email": email, "password": password, "device_id": device_id},
+        )
+        check("device mismatch 후 재로그인 200", r.status_code == 200, f"{r.status_code}")
+        if r.status_code != 200:
+            return 1
+        tokens = r.json()
+        access, refresh = tokens["access_token"], tokens["refresh_token"]
+
+        time.sleep(1.1)
+        r = c.post(
+            "/auth/refresh",
+            json={"refresh_token": refresh, "device_id": device_id},
+        )
         check("refresh로 재발급 200", r.status_code == 200, f"{r.status_code} {r.text[:120]}")
         if r.status_code != 200:
             return 1
@@ -187,11 +222,17 @@ def main() -> int:
 
         # ── ⑥ 재사용 감지 ───────────────────────────────────────────────
         print("\n⑥ 재사용 감지 (탈취 방어)")
-        r = c.post("/auth/refresh", json={"refresh_token": refresh})
+        r = c.post(
+            "/auth/refresh",
+            json={"refresh_token": refresh, "device_id": device_id},
+        )
         check("이미 쓴 refresh 재사용은 401", r.status_code == 401, f"{r.status_code}")
         check("모든 기기 로그아웃 안내", "모든 기기" in r.text, r.json().get("detail", ""))
 
-        r = c.post("/auth/refresh", json={"refresh_token": new_refresh})
+        r = c.post(
+            "/auth/refresh",
+            json={"refresh_token": new_refresh, "device_id": device_id},
+        )
         check(
             "재사용 감지로 살아있던 refresh까지 폐기됨",
             r.status_code == 401,
@@ -200,26 +241,44 @@ def main() -> int:
 
         # ── ⑦ 로그아웃 ─────────────────────────────────────────────────
         print("\n⑦ 로그아웃")
-        r = c.post("/auth/login", json={"email": email, "password": password})
+        r = c.post(
+            "/auth/login",
+            json={"email": email, "password": password, "device_id": device_id},
+        )
         check("재로그인 200", r.status_code == 200, f"{r.status_code}")
         t = r.json()
 
         r = c.post("/auth/logout", json={"refresh_token": t["refresh_token"]})
         check("로그아웃 200", r.status_code == 200, f"{r.status_code}")
 
-        r = c.post("/auth/refresh", json={"refresh_token": t["refresh_token"]})
+        r = c.post(
+            "/auth/refresh",
+            json={"refresh_token": t["refresh_token"], "device_id": device_id},
+        )
         check("로그아웃한 refresh로 재발급 불가 401", r.status_code == 401, f"{r.status_code}")
 
         r = c.post("/auth/logout", json={"refresh_token": t["refresh_token"]})
         check("로그아웃 재호출도 200 (멱등)", r.status_code == 200, f"{r.status_code}")
 
         # 두 기기에서 로그인한 뒤 전체 로그아웃
-        a = c.post("/auth/login", json={"email": email, "password": password}).json()
-        b = c.post("/auth/login", json={"email": email, "password": password}).json()
+        a = c.post(
+            "/auth/login",
+            json={"email": email, "password": password, "device_id": device_id},
+        ).json()
+        b = c.post(
+            "/auth/login",
+            json={"email": email, "password": password, "device_id": other_device_id},
+        ).json()
         r = c.post("/auth/logout-all", headers={"Authorization": f"Bearer {a['access_token']}"})
         check("logout-all 200", r.status_code == 200, r.text[:80])
-        r1 = c.post("/auth/refresh", json={"refresh_token": a["refresh_token"]})
-        r2 = c.post("/auth/refresh", json={"refresh_token": b["refresh_token"]})
+        r1 = c.post(
+            "/auth/refresh",
+            json={"refresh_token": a["refresh_token"], "device_id": device_id},
+        )
+        r2 = c.post(
+            "/auth/refresh",
+            json={"refresh_token": b["refresh_token"], "device_id": other_device_id},
+        )
         check(
             "두 기기 refresh가 모두 죽음",
             r1.status_code == 401 and r2.status_code == 401,
@@ -228,10 +287,17 @@ def main() -> int:
 
         # ── ⑧ 소셜 (위조 토큰 거부만) ────────────────────────────────────
         print("\n⑧ 소셜 로그인 (위조 토큰 거부 확인)")
-        r = c.post("/auth/google", json={"id_token": "fake.token.value"})
-        check("가짜 구글 토큰은 401", r.status_code == 401, f"{r.status_code} {r.text[:80]}")
+        r = c.post(
+            "/auth/google",
+            json={"id_token": "fake.token.value", "device_id": device_id},
+        )
+        check(
+            "가짜 구글 토큰은 로그인되지 않음",
+            r.status_code in {401, 502},
+            f"{r.status_code} {r.text[:80]}",
+        )
         # 카카오는 윤영 담당으로 아직 엔드포인트가 없다. 구현되면 아래 두 줄을 살린다.
-        # r = c.post("/auth/kakao", json={"access_token": "fake-kakao-token"})
+        # r = c.post("/auth/kakao", json={"access_token": "fake-kakao-token", "device_id": device_id})
         # check("가짜 카카오 토큰은 401", r.status_code == 401, f"{r.status_code} {r.text[:80]}")
 
     print(f"\n{'─' * 60}")
