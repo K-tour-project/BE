@@ -21,11 +21,17 @@ class Settings(BaseSettings):
     # SECRET_KEY: JWT 서명 키. 운영에선 반드시 .env로 교체(절대 노출 금지). 기본값은 개발용.
     SECRET_KEY: str = "dev-only-change-me-in-env"
     JWT_ALGORITHM: str = "HS256"
+    JWT_ISSUER: str = "EveryTrip"
+    JWT_AUDIENCE: str = "EveryTrip API"
     # access는 짧게. 취소가 불가능한 토큰이라 유출 시 피해창을 좁히는 게 유일한 방어다.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1시간
     # refresh는 길게. DB에 있어서 언제든 취소할 수 있으므로 길어도 안전하다.
     #   → 사용자는 30일간 재로그인 없이 앱을 쓴다(access는 뒤에서 자동 갱신).
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
+    # 운영 프록시가 X-Forwarded-Proto를 올바르게 전달하도록 설정한 뒤 활성화한다.
+    # True이면 HTTP 요청을 HTTPS로 307 리다이렉트한다.
+    FORCE_HTTPS: bool = False
 
     # ── 3단계(소셜 로그인 검증) ────────────────────────────────────────────
     # 앱이 카카오/구글 SDK로 받은 토큰을 우리 서버가 **제공자에게 되물어** 검증한다.

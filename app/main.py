@@ -1,5 +1,6 @@
 """FastAPI 앱 진입점. uvicorn이 여기의 `app` 객체를 띄운다."""
 from fastapi import FastAPI
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 from app.core.config import settings
 from app.features.auth.router import router as auth_router
@@ -10,6 +11,9 @@ from app.features.regions.router import router as regions_router
 from app.features.places.tourism import router as tourism_router
 
 app = FastAPI(title=settings.APP_NAME)
+
+if settings.FORCE_HTTPS:
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 # 라우터(창구) 등록 — 기능 폴더를 app/features/ 에 추가한 뒤 여기 한 줄만 더하면 연결된다.
 app.include_router(health_router)

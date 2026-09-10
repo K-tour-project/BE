@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -13,6 +14,18 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 # 요구사항을 늘릴수록 사용자가 'Password1!'류로 수렴해 오히려 예측하기 쉬워진다.
 _HAS_LETTER = re.compile(r"[A-Za-z]")
 _HAS_DIGIT = re.compile(r"\d")
+
+# 앱이 만드는 안정적인 기기 식별자. 공백이나 제어문자, URL 구분자 등은 받지 않는다.
+# 예: android_550e8400-e29b-41d4-a716-446655440000
+DeviceId = Annotated[
+    str,
+    Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.:-]+$",
+        description="8~128자의 영문, 숫자, _, -, ., : 조합",
+    ),
+]
 
 
 class _PasswordField(BaseModel):
@@ -91,7 +104,7 @@ class LoginRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=200)
-    device_id: str = Field(..., min_length=8, max_length=200)
+    device_id: DeviceId
 
 
 # ─────────────────────────────────── 소셜 로그인 ─────────────────────────────────
@@ -101,7 +114,7 @@ class GoogleLoginRequest(BaseModel):
     """`POST /auth/google` — 앱이 구글 SDK에서 받은 **ID 토큰**(JWT)."""
 
     id_token: str = Field(..., min_length=1)
-    device_id: str = Field(..., min_length=8, max_length=200)
+    device_id: DeviceId
 
 
 class KakaoLoginRequest(BaseModel):
@@ -116,7 +129,7 @@ class KakaoLoginRequest(BaseModel):
     """
 
     access_token: str = Field(..., min_length=1)
-    device_id: str = Field(..., min_length=8, max_length=200)
+    device_id: DeviceId
 
 
 # ─────────────────────────────── 토큰 · 사용자 응답 ───────────────────────────────
@@ -158,7 +171,7 @@ class RefreshRequest(BaseModel):
     """`POST /auth/refresh` — access가 만료됐을 때 앱이 자동으로 호출한다."""
 
     refresh_token: str = Field(..., min_length=1)
-    device_id: str = Field(..., min_length=8, max_length=200)
+    device_id: DeviceId
 
 
 class LogoutRequest(BaseModel):

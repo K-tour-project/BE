@@ -111,8 +111,13 @@ async def rotate_tokens(
        (정상 앱은 새 토큰을 받아 갔다). 탈취를 의심해 그 계정의 **모든 세션을 끊는다.**
     """
     token_hash = hash_refresh_token(raw_refresh)
+    # 같은 refresh 토큰으로 요청이 동시에 들어와도 하나만 회전에 성공해야 한다.
+    # PostgreSQL의 행 잠금으로 첫 요청이 커밋될 때까지 뒤 요청을 기다리게 하고,
+    # 뒤 요청은 갱신된 revoked_at을 확인해 재사용 처리로 들어간다.
     row = await db.scalar(
-        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        select(RefreshToken)
+        .where(RefreshToken.token_hash == token_hash)
+        .with_for_update()
     )
     if row is None:
         raise HTTPException(status_code=401, detail="유효하지 않은 refresh 토큰입니다.")

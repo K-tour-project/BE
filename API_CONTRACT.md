@@ -102,7 +102,7 @@
 
 **앱이 해야 할 일 3가지**
 
-1. 로그인·가입 응답의 **두 토큰을 안전한 저장소에 저장**합니다.
+1. 로그인 응답의 **두 토큰을 안전한 저장소에 저장**합니다.
    (안드로이드 `EncryptedSharedPreferences` / iOS Keychain / RN `react-native-keychain`.
    일반 SharedPreferences·AsyncStorage는 평문이라 피해주세요.)
 2. **API가 `401`을 주면** → `POST /auth/refresh` 호출 → 새 토큰으로 교체 → **원래 요청 재시도**.
@@ -113,7 +113,7 @@
 > HTTP 클라이언트의 인터셉터(Retrofit `Authenticator` / axios interceptor / dio interceptor)에
 > 2번을 한 번만 심어두면 화면 코드는 토큰을 신경 쓸 필요가 없습니다.
 
-**공통 성공 응답** (가입·로그인·소셜·재발급이 전부 같은 모양)
+**공통 성공 응답** (로그인·소셜·재발급이 같은 모양)
 ```jsonc
 {
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
@@ -142,7 +142,7 @@
       ↓
 [코드 입력]    POST /auth/email/verify-code → 통과 (이후 30분 안에 가입 완료해야 함)
       ↓
-[비번·닉네임]  POST /auth/signup            → 가입 + 즉시 로그인 상태(토큰 발급)
+[비번·닉네임]  POST /auth/signup            → 계정 생성(이후 로그인 필요)
 ```
 
 #### `POST /auth/email/send-code`
@@ -173,7 +173,8 @@
 ```jsonc
 // 요청
 { "email": "eunseo@example.com", "password": "ktour1234", "nickname": "은서" }
-// 응답 201 → 위 §2.0 공통 성공 응답
+// 응답 201
+{ "message": "회원가입이 완료되었습니다.", "user": { ... } }
 ```
 - **비밀번호 규칙: 8자 이상 72바이트 이하, 영문+숫자 필수.** 위반 시 `422`
   (앱에서 미리 검사해 주면 사용자 경험이 좋습니다)
@@ -184,7 +185,8 @@
 ### 2.2 `POST /auth/login` — 일반 로그인
 ```jsonc
 // 요청
-{ "email": "eunseo@example.com", "password": "ktour1234" }
+{ "email": "eunseo@example.com", "password": "ktour1234",
+  "device_id": "android_550e8400-e29b-41d4-a716-446655440000" }
 // 응답 200 → §2.0 공통 성공 응답
 ```
 - 이메일은 **대소문자를 구분하지 않습니다** (`Kim@x.com` = `kim@x.com`)
@@ -192,6 +194,7 @@
   — **계정 없음과 비밀번호 틀림을 구분해 주지 않습니다**(가입 여부를 캐내지 못하게).
   앱에서도 "없는 계정입니다" 같은 추측 문구를 만들지 마세요.
 - `409` 그 이메일은 소셜로 가입돼 있음 → `detail` 문구를 그대로 보여주면 됩니다
+- `device_id`는 8~128자의 영문·숫자·`_`·`-`·`.`·`:` 조합이며, 누락·형식 오류는 `422`
 
 ### 2.3 소셜 로그인 (간편로그인)
 
@@ -203,16 +206,16 @@
 > | | 서버 상태 | 담당 |
 > |---|---|---|
 > | `POST /auth/google` | ✅ **구현·동작 중** | 김은서 |
-> | `POST /auth/kakao` | ⬜ **미구현** (자리만 마련됨) | 윤영 |
+> | `POST /auth/kakao` | ✅ **구현됨** | 윤영 |
 >
 > ⚠️ **요청·응답 형태는 아래대로 이미 확정된 계약입니다.** 카카오를 구현할 때 이 모양을
 > 그대로 지켜주세요. 프론트가 두 버튼을 같은 코드로 처리할 수 있어야 합니다.
 
 ```jsonc
 // POST /auth/google   ✅ 동작 중
-{ "id_token": "eyJhbGciOi..." }      // 구글 SDK의 ID 토큰
-// POST /auth/kakao    ⬜ 미구현 (윤영)
-{ "access_token": "abcd1234..." }    // 카카오 SDK의 액세스 토큰
+{ "id_token": "eyJhbGciOi...", "device_id": "android_..." }
+// POST /auth/kakao    ✅ 구현됨
+{ "access_token": "abcd1234...", "device_id": "android_..." }
 ```
 ⚠️ **필드 이름이 서로 다릅니다.** 구글은 정보가 담긴 서명된 JWT(`id_token`)를 주고,
 카카오는 정보가 없는 불투명 토큰(`access_token`)을 줍니다. 실수가 아니라 제공자 차이입니다.
@@ -225,15 +228,10 @@
 > 📌 **카카오는 `user.email`이 `null`일 수 있습니다.** 이메일이 선택 동의 항목이라서 정상입니다.
 > 이메일을 화면에 꼭 띄워야 한다면 null 처리를 준비해 주세요.
 
-> 🛠 **카카오 구현하실 분께** — 서버 쪽은 뼈대가 다 준비돼 있어 **함수 하나 + 라우터 4줄**이면 됩니다.
-> `app/features/auth/social.py`의 `verify_kakao()`에 호출할 URL·응답 예시·주의점을 전부 주석으로
-> 적어뒀고, `router.py`에도 붙일 자리를 표시해뒀습니다. 회원 조회·자동가입·토큰 발급
-> (`service.social_login()`)은 구글과 공용이라 손댈 필요가 없습니다.
-
 ### 2.4 `POST /auth/refresh` — access 재발급
 ```jsonc
 // 요청
-{ "refresh_token": "Yx7q3f..." }
+{ "refresh_token": "Yx7q3f...", "device_id": "android_..." }
 // 응답 200 → §2.0 공통 성공 응답 (access·refresh 둘 다 새것)
 ```
 - `401` refresh가 없음·만료·**이미 사용됨** → 저장된 토큰 전부 지우고 로그인 화면으로

@@ -45,6 +45,8 @@ def create_access_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
         "typ": _TOKEN_TYPE_ACCESS,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
         "iat": now,
         "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     }
@@ -55,7 +57,11 @@ def decode_access_token(token: str) -> int | None:
     """access JWT를 검증·해독해 user_id를 돌려준다. 위조·만료·형식오류·타입불일치면 None."""
     try:
         payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            issuer=settings.JWT_ISSUER,
+            audience=settings.JWT_AUDIENCE,
         )
     except JWTError:
         return None
