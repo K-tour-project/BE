@@ -7,6 +7,7 @@ from app.features.contents.router import router as contents_router
 from app.features.health.router import router as health_router
 from app.features.places.router import router as places_router
 from app.features.regions.router import router as regions_router
+from app.features.places.tourism import router as tourism_router
 
 app = FastAPI(title=settings.APP_NAME)
 
@@ -16,6 +17,7 @@ app.include_router(auth_router)      # 3단계: 회원가입·로그인·로그�
 app.include_router(contents_router)  # 5단계: 작품 검색·상세·촬영지
 app.include_router(regions_router)   # 5단계: 지역 리졸브·목록·지역 내 촬영지
 app.include_router(places_router)    # 5단계: 반경 조회 (4단계에서 상세가 추가된다)
+app.include_router(tourism_router)
 
 
 @app.get("/")

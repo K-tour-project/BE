@@ -91,6 +91,10 @@ class TourApiClient:
 
     # ── 내부 공통 호출 ────────────────────────────────────────────────────
     async def _get(self, base: str, operation: str, **params: Any) -> list[dict]:
+        rows, _ = await self._get_page(base, operation, **params)
+        return rows
+
+    async def _get_page(self, base: str, operation: str, **params: Any) -> tuple[list[dict], int]:
         """공통 파라미터를 붙여 호출하고 items 목록을 돌려준다.
 
         성공·실패와 무관하게 `self.calls`에 기록을 남긴다(입증용). 기록에 serviceKey는 없다.
@@ -115,8 +119,8 @@ class TourApiClient:
             res = await self._client.get(f"{base}/{operation}", params=query)
         except httpx.HTTPError as e:
             record.response_time_ms = elapsed()
-            record.error = str(e)[:200]
-            raise TourApiError(f"{operation} 호출 실패: {e}") from e
+            record.error = type(e).__name__
+            raise TourApiError(f"{operation} 네트워크 요청 실패") from None
 
         record.response_time_ms = elapsed()
         record.http_status = res.status_code
@@ -140,14 +144,24 @@ class TourApiClient:
             record.error = f"[{code}] {header.get('resultMsg')}"[:200]
             raise TourApiError(f"{operation} 실패 [{code}] {header.get('resultMsg')}")
 
-        items = body.get("response", {}).get("body", {}).get("items")
+        response_body = body.get("response", {}).get("body", {})
+        total = int(response_body.get("totalCount") or 0)
+        items = response_body.get("items")
         if not items:  # 결과 0건이면 items가 빈 문자열로 온다.
             record.result_count = 0
-            return []
+            return [], total
         item = items.get("item", [])
         rows = item if isinstance(item, list) else [item]
         record.result_count = len(rows)
-        return rows
+        return rows, total
+
+    async def area_based(self, sido_code: str, sigungu_code: str | None, *, page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+        """법정동 코드로 관광지 목록과 전체 개수를 실시간 조회한다."""
+        return await self._get_page(
+            settings.TOUR_API_BASE, "areaBasedList2",
+            lDongRegnCd=sido_code, lDongSignguCd=sigungu_code,
+            contentTypeId="12", arrange="A", pageNo=page, numOfRows=size,
+        )
 
     # ── 장소 상세 (4단계 핵심) ────────────────────────────────────────────
     async def detail_common(self, content_id: str) -> dict | None:
@@ -159,12 +173,17 @@ class TourApiClient:
 
     async def detail_images(self, content_id: str) -> list[dict]:
         """이미지 목록 — URL만 전달한다(다운로드 금지)."""
-        return await self._get(
-            settings.TOUR_API_BASE,
-            "detailImage2",
-            contentId=content_id,
-            imageYN="Y",
-        )
+        images = []
+        page = 1
+        while True:
+            rows, total = await self._get_page(
+                settings.TOUR_API_BASE, "detailImage2", contentId=content_id,
+                imageYN="Y", numOfRows=100, pageNo=page,
+            )
+            images.extend(rows)
+            if not rows or len(images) >= total:
+                return images
+            page += 1
 
     async def detail_intro(self, content_id: str, content_type_id: str) -> dict | None:
         """운영시간·휴무일 등 타입별 소개정보.

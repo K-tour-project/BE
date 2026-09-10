@@ -1,0 +1,80 @@
+import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import httpx
+
+from app.features.places.tourism import matches, list_tourism, tourism_detail
+from app.integrations.tour_api import TourApiClient
+
+
+class TourismTests(unittest.IsolatedAsyncioTestCase):
+    def test_same_name_requires_nearby_location(self):
+        row = dict(contentid="123", title="같은 공원", mapy="37.5", mapx="127.0")
+        place = SimpleNamespace(tour_content_id=None, name="같은공원", lat=37.5, lng=127.0, address=None)
+        self.assertTrue(matches(row, place))
+        place.lat = 35.0
+        self.assertFalse(matches(row, place))
+        place.tour_content_id = "123"
+        self.assertTrue(matches(row, place))
+        place.tour_content_id = "456"
+        self.assertFalse(matches(row, place))
+
+    async def test_client_total_and_image_pagination(self):
+        requests = []
+        def handle(request):
+            requests.append(request)
+            page = request.url.params.get("pageNo")
+            is_area = request.url.path.endswith("areaBasedList2")
+            body = {"totalCount": 25 if is_area else 2, "items": {"item": {"contentid": "1"} if is_area else {"originimgurl": f"image{page}"}}}
+            return httpx.Response(200, json={"response": {"header": {"resultCode": "0000"}, "body": body}})
+        with patch("app.integrations.tour_api.settings") as settings:
+            settings.tour_api_ready = True
+            settings.TOUR_API_KEY = "test"
+            settings.TOUR_API_TIMEOUT = 5
+            settings.TOUR_API_APP_NAME = "test"
+            settings.TOUR_API_BASE = "https://example.test"
+            api = TourApiClient()
+            await api.close()
+            api._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+            async with api:
+                rows, total = await api.area_based("11", "110")
+                self.assertEqual(total, 25)
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(requests[0].url.params["lDongSignguCd"], "110")
+                self.assertEqual(len(await api.detail_images("1")), 2)
+            self.assertNotIn("serviceKey", api.calls[0].params)
+
+    async def test_list_counts_names_and_classification(self):
+        db = AsyncMock()
+        db.get.return_value = SimpleNamespace(bjd_cd="1111000000", level="2")
+        regions = [SimpleNamespace(bjd_cd="1100000000", name="서울특별시", level="1"), SimpleNamespace(bjd_cd="1111000000", name="종로구", level="2")]
+        places = [SimpleNamespace(place_id=7, tour_content_id=None, name="공원", lat=37.5, lng=127, address=None)]
+        db.execute.side_effect = [SimpleNamespace(all=lambda: regions), SimpleNamespace(all=lambda: places)]
+        api = AsyncMock()
+        api.__aenter__.return_value = api
+        api.calls = []
+        api.area_based.return_value = ([dict(contentid="123", title="공원", mapy="37.5", mapx="127", firstimage2="thumb")], 21)
+        with patch("app.features.places.tourism.TourApiClient", return_value=api):
+            result = await list_tourism(db, 1, 1, 20)
+        self.assertEqual((result.total, result.count, result.has_next), (21, 1, True))
+        self.assertEqual(result.items[0].category, "촬영지")
+        self.assertEqual(result.items[0].sigungu_name, "종로구")
+        self.assertEqual(result.items[0].place_ids, [7])
+
+    async def test_detail_uses_content_id_and_original_images(self):
+        api = AsyncMock()
+        api.__aenter__.return_value = api
+        api.calls = []
+        api.detail_common.return_value = dict(title="공원", overview="소개<br>설명", homepage='<a href="https://example.test">홈페이지</a>', addr1="서울", tel="02-123")
+        api.detail_images.return_value = [{"originimgurl": "original"}, {"originimgurl": "original"}, {}]
+        with patch("app.features.places.tourism.TourApiClient", return_value=api):
+            result = await tourism_detail(AsyncMock(), "123")
+        self.assertEqual(result.images, ["original"])
+        self.assertEqual(result.homepage, "https://example.test")
+        self.assertEqual(result.address, "서울")
+        api.detail_common.assert_awaited_once_with("123")
+
+
+if __name__ == "__main__":
+    unittest.main()

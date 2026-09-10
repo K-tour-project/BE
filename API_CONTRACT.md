@@ -663,3 +663,74 @@ uvicorn app.main:app --reload
 | 2026-08-22 | **§2 인증 전면 개정** (김은서). ⚠️ 아래 3가지가 기존 계약과 다릅니다.<br>① **일반 회원가입 추가** — 소셜 전용이 아니게 됨. 이메일 인증(6자리 코드) 포함<br>② **토큰이 2개로 분리** — access 1시간 + refresh 30일. 기존 "14일짜리 토큰 1개"는 폐기<br>③ **로그아웃 API 신설** — 서버에서 실제로 무효화됨<br>§1 에러 코드에 `403`·`409`·`429` 추가 |
 
 > 계약 변경이 필요하면 이 표에 기록하고 팀에 공유합니다. **말 없이 필드를 바꾸지 않습니다.**
+# 지역 관광지 지도·하단 목록 API
+
+`GET /regions/{region_id}/tourism-places?page=1&size=20`
+
+지역 선택 API에서 받은 `region_id`를 전달한다. `page`는 1 이상,
+`size`는 1~100이며 기본값은 20이다. 국문관광정보 `areaBasedList2`를
+매 요청 호출하며 현재 대상은 관광지(`contentTypeId=12`)다.
+
+```json
+{
+  "items": [{
+    "content_id": "123456",
+    "name": "관광지 이름",
+    "image_url": "https://example.com/main.jpg",
+    "thumbnail_url": "https://example.com/thumb.jpg",
+    "location": {"lat": 37.58, "lng": 126.98},
+    "sido_code": "11",
+    "sigungu_code": "110",
+    "sido_name": "서울특별시",
+    "sigungu_name": "종로구",
+    "category": "촬영지",
+    "place_ids": [7, 15]
+  }],
+  "total": 45,
+  "count": 1,
+  "page": 1,
+  "size": 20,
+  "has_next": true
+}
+```
+
+위 응답은 필드 설명용 예시다. `total`은 TourAPI의 `totalCount`로 선택 지역의
+전체 관광지 수이고, `count`는 현재 응답 항목 수다. 다음 페이지는 `page+1`로
+요청한다. 지도와 하단 목록은 같은 `items`를 사용하며 전체 지도 표시가 필요하면
+`has_next`가 false가 될 때까지 페이지를 추가로 조회한다.
+
+`sido_code`와 `sigungu_code`는 법정동 시도 2자리와 시군구 3자리 코드다.
+기존 TourAPI `areaCode`/`sigunguCode` 코드 체계와 다르다. `regions.bjd_cd`와
+연결하여 지역명을 제공한다. 이미지는 없으면 null이고, 좌표가 없거나 유효하지
+않으면 `location=null`이므로 해당 항목은 목록에만 표시한다.
+
+`category`는 `촬영지` 또는 `관광지`다. `places.tour_content_id` 일치를 우선하고,
+연결 ID가 없는 데이터는 공백·문장부호를 제거한 장소명이 같고 좌표가 200m 이내인
+경우 촬영지로 분류한다. 좌표가 없는 경우에는 같은 이름과 동일 주소를 요구한다.
+이름 표기가 다르면 매칭되지 않을 수 있다. 한 촬영지에 CSV 행이 여러 개 있으면
+해당 `place_ids`를 모두 반환하며 관광지 목록 항목은 늘어나지 않는다.
+
+`GET /tourism-places/{content_id}`
+
+마커 또는 목록 클릭 시 목록에서 받은 **TourAPI content_id**를 전달한다.
+기존 작품 `contents.content_id`나 DB `places.place_id`가 아니다.
+`detailCommon2`와 `detailImage2`를 실시간 호출한다.
+
+```json
+{
+  "content_id": "123456",
+  "name": "관광지 이름",
+  "overview": "관광지 소개 및 설명",
+  "homepage": "https://example.com",
+  "tel": "02-123-4567",
+  "address": "서울특별시 종로구 ...",
+  "address_detail": null,
+  "images": ["https://example.com/original.jpg"]
+}
+```
+
+홈페이지는 앵커 태그에서 URL을 추출하고 소개는 HTML 태그를 제거한다.
+이미지는 `originimgurl`의 중복 없는 URL 목록이며 이미지 페이지 전체를 조회한다.
+정보가 없는 선택 필드는 null, 이미지가 없으면 빈 배열이다.
+지역/상세가 없으면 404, 잘못된 페이지·ID는 422, 외부 API 실패(이미지 조회 포함)는
+502를 반환한다. 응답 본문은 DB에 저장하지 않으며 호출 메타데이터만 기록한다.
