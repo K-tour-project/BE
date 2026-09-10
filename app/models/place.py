@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from geoalchemy2 import Geography
-from sqlalchemy import TIMESTAMP, BigInteger, ForeignKey, Index, String
+from sqlalchemy import TIMESTAMP, BigInteger, ForeignKey, Index, String, Text, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -23,6 +23,13 @@ class Place(Base):
 
     place_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    title: Mapped[str | None] = mapped_column(Text)
+    place_type: Mapped[str | None] = mapped_column(Text)
+    latitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    longitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    source_url: Mapped[str | None] = mapped_column(Text)
+    location_source: Mapped[str | None] = mapped_column(Text)
+    csv_row_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     geom = mapped_column(  # 큐레이션 좌표 (GeoAlchemy2가 GIST 공간 인덱스 자동 생성)
         Geography(geometry_type="POINT", srid=4326), nullable=True
     )
