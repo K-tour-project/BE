@@ -71,5 +71,4 @@ class ProductDetail(BaseModel):
     rating: float | None = None
     popularity: float | None = None
     lead_actors: str | None = None
-    match_similarity: float | None = None
     place_count: int

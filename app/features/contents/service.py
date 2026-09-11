@@ -137,8 +137,5 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
         rating=float(product.rating) if product.rating is not None else None,
         popularity=float(product.popularity) if product.popularity is not None else None,
         lead_actors=product.lead_actors,
-        match_similarity=(
-            float(product.match_similarity) if product.match_similarity is not None else None
-        ),
         place_count=place_count,
     )
