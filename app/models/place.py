@@ -55,10 +55,6 @@ class Place(Base):
     road_address: Mapped[str | None] = mapped_column(String(300))  # 도로명주소
 
     region: Mapped["Region"] = relationship("Region")  # noqa: F821
-    mappings: Mapped[list["ContentPlaceMapping"]] = relationship(  # noqa: F821
-        "ContentPlaceMapping", back_populates="place", cascade="all, delete-orphan"
-    )
-
     __table_args__ = (
         # 지역 내 촬영지 조회(지도 화면)의 기본 필터.
         # ⚠️ 모델에 선언해두지 않으면 alembic autogenerate가 '군더더기'로 보고 DROP을 만든다.

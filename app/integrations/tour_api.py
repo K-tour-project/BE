@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -221,14 +222,33 @@ class TourApiClient:
         )
 
     async def search_keyword(self, keyword: str, rows: int = 10) -> list[dict]:
-        """키워드(장소명) 검색 — ★우리 장소 ↔ 관광공사 관광지 매칭의 주(主) 수단."""
-        return await self._get(
-            settings.TOUR_API_BASE,
-            "searchKeyword2",
-            keyword=keyword,
-            numOfRows=rows,
-            pageNo=1,
+        """관광지·문화시설 키워드 검색 — 우리 장소와 TourAPI를 연결하는 주 수단."""
+        results = await asyncio.gather(
+            *(
+                self._get(
+                    settings.TOUR_API_BASE,
+                    "searchKeyword2",
+                    keyword=keyword,
+                    contentTypeId=content_type_id,
+                    numOfRows=rows,
+                    pageNo=1,
+                )
+                for content_type_id in ("12", "14")
+            )
         )
+
+        # 유형별 응답을 합치되 혹시 같은 contentid가 섞이면 한 번만 반환한다.
+        merged: list[dict] = []
+        seen: set[str] = set()
+        for items in results:
+            for item in items:
+                content_id = str(item.get("contentid") or "")
+                if content_id and content_id in seen:
+                    continue
+                if content_id:
+                    seen.add(content_id)
+                merged.append(item)
+        return merged
 
     # ── 관광사진 (포토코리아) ─────────────────────────────────────────────
     # ⚠️ 이 서비스는 `PhotoGalleryService1`이다(2는 존재하지 않음). 오퍼레이션도 `~1`.
@@ -291,12 +311,13 @@ class TourApiClient:
 # ── detailIntro2 필드 이름 정규화 ─────────────────────────────────────────
 # 같은 '운영시간'인데 콘텐츠 타입마다 필드 이름이 다르다. 계약서는 use_time·rest_date
 # 하나로 약속했으므로 여기서 흡수한다. 32(숙박)는 체크인/아웃이라 대응 필드가 없다.
-_INTRO_FIELDS: dict[str, tuple[str, str]] = {
-    "12": ("usetime", "restdate"),  # 관광지
-    "14": ("usetimeculture", "restdateculture"),  # 문화시설
-    "28": ("usetimeleports", "restdateleports"),  # 레포츠
-    "38": ("opentime", "restdateshopping"),  # 쇼핑
-    "39": ("opentimefood", "restdatefood"),  # 음식점
+_INTRO_FIELDS: dict[str, tuple[str, str, str | None, str | None]] = {
+    # 운영시간, 휴무일, 주차, 반려동물 동반 여부
+    "12": ("usetime", "restdate", "parking", "chkpet"),  # 관광지
+    "14": ("usetimeculture", "restdateculture", "parkingculture", "chkpetculture"),  # 문화시설
+    "28": ("usetimeleports", "restdateleports", "parkingleports", "chkpetleports"),  # 레포츠
+    "38": ("opentime", "restdateshopping", "parkingshopping", "chkpetshopping"),  # 쇼핑
+    "39": ("opentimefood", "restdatefood", "parkingfood", "chkpetfood"),  # 음식점
 }
 
 
@@ -305,5 +326,15 @@ def intro_hours(row: dict | None, content_type_id: str | None) -> tuple[str | No
     fields = _INTRO_FIELDS.get(str(content_type_id or ""))
     if not row or not fields:
         return None, None
-    use_key, rest_key = fields
+    use_key, rest_key, _, _ = fields
     return (row.get(use_key) or None), (row.get(rest_key) or None)
+
+
+def intro_details(
+    row: dict | None, content_type_id: str | None
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """detailIntro2 → (이용 시간, 휴무일, 주차 정보, 반려동물 동반 정보)."""
+    fields = _INTRO_FIELDS.get(str(content_type_id or ""))
+    if not row or not fields:
+        return None, None, None, None
+    return tuple(row.get(key) or None if key else None for key in fields)  # type: ignore[return-value]

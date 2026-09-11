@@ -13,18 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.contents.schema import (
     ContentCandidate,
-    ContentDetail,
     ContentSummary,
+    ProductDetail,
 )
-from app.models import Content, ContentPlaceMapping
+from app.models import Place, Product
 
 
 def _place_count_sq():
-    """작품별 촬영지 수(상관 서브쿼리). GROUP BY 없이 붙일 수 있어 페이지네이션이 단순해진다."""
+    """products.title과 연결된 places 행 수."""
     return (
         select(func.count())
-        .select_from(ContentPlaceMapping)
-        .where(ContentPlaceMapping.content_id == Content.content_id)
+        .select_from(Place)
+        .where(Place.title == Product.title)
         .scalar_subquery()
     )
 
@@ -37,8 +37,8 @@ def _title_score(q: str):
     """
     return cast(
         case(
-            (Content.title_ko == q, 1.0),
-            (Content.title_ko.ilike(f"{q}%"), 0.8),
+            (Product.title == q, 1.0),
+            (Product.title.ilike(f"{q}%"), 0.8),
             else_=0.5,
         ),
         Float,
@@ -52,16 +52,16 @@ async def search_contents(
     if not q:
         return [], 0
 
-    where = Content.title_ko.ilike(f"%{q}%")
-    total = await db.scalar(select(func.count()).select_from(Content).where(where))
+    where = Product.title.ilike(f"%{q}%")
+    total = await db.scalar(select(func.count()).select_from(Product).where(where))
 
     pc = _place_count_sq().label("place_count")
     score = _title_score(q).label("score")
     rows = (
         await db.execute(
-            select(Content, pc, score)
+            select(Product, pc, score)
             .where(where)
-            .order_by(score.desc(), pc.desc(), Content.production_year.desc().nulls_last())
+            .order_by(score.desc(), pc.desc(), Product.first_air_date.desc().nulls_last())
             .limit(limit)
             .offset(offset)
         )
@@ -69,13 +69,14 @@ async def search_contents(
 
     return [
         ContentSummary(
-            content_id=c.content_id,
-            title_ko=c.title_ko,
-            production_year=c.production_year,
-            content_type=c.content_type.value if hasattr(c.content_type, "value") else str(c.content_type),
-            genre_tags=c.genre_tags,
+            product_id=c.product_id,
+            title=c.title,
+            first_air_date=c.first_air_date.isoformat() if c.first_air_date else None,
+            category="drama",
+            product_type=c.product_type,
+            genres=c.genres,
             poster_url=c.poster_url,
-            vote_average=float(c.vote_average) if c.vote_average is not None else None,
+            rating=float(c.rating) if c.rating is not None else None,
             place_count=n,
         )
         for c, n, _ in rows
@@ -92,19 +93,19 @@ async def resolve_contents(db: AsyncSession, query: str, limit: int = 10) -> lis
     score = _title_score(query).label("score")
     rows = (
         await db.execute(
-            select(Content, score)
-            .where(Content.title_ko.ilike(f"%{query}%"))
-            .order_by(score.desc(), pc.desc(), Content.production_year.desc().nulls_last())
+            select(Product, score)
+            .where(Product.title.ilike(f"%{query}%"))
+            .order_by(score.desc(), pc.desc(), Product.first_air_date.desc().nulls_last())
             .limit(limit)
         )
     ).all()
 
     return [
         ContentCandidate(
-            content_id=c.content_id,
-            title_ko=c.title_ko,
-            production_year=c.production_year,
-            content_type=c.content_type.value if hasattr(c.content_type, "value") else str(c.content_type),
+            product_id=c.product_id,
+            title=c.title,
+            first_air_date=c.first_air_date.isoformat() if c.first_air_date else None,
+            category="drama",
             poster_url=c.poster_url,
             score=round(float(s), 2),
         )
@@ -112,26 +113,32 @@ async def resolve_contents(db: AsyncSession, query: str, limit: int = 10) -> lis
     ]
 
 
-async def get_content(db: AsyncSession, content_id: int) -> ContentDetail | None:
+async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None:
     row = (
         await db.execute(
-            select(Content, _place_count_sq().label("pc")).where(Content.content_id == content_id)
+            select(Product, _place_count_sq().label("pc")).where(Product.product_id == product_id)
         )
     ).first()
     if row is None:
         return None
-    c, pc = row
-    return ContentDetail(
-        content_id=c.content_id,
-        title_ko=c.title_ko,
-        original_title=c.original_title,
-        production_year=c.production_year,
-        content_type=c.content_type.value if hasattr(c.content_type, "value") else str(c.content_type),
-        genre_tags=c.genre_tags,
-        overview=c.overview,
-        poster_url=c.poster_url,
-        vote_average=float(c.vote_average) if c.vote_average is not None else None,
-        runtime=c.runtime,
-        tmdb_id=c.tmdb_id,
-        place_count=pc,
+    product, place_count = row
+    return ProductDetail(
+        product_id=product.product_id,
+        title=product.title,
+        overview=product.overview,
+        is_overview_translated=product.is_overview_translated,
+        first_air_date=product.first_air_date.isoformat() if product.first_air_date else None,
+        category="drama",  # 현재 products.csv는 Scripted/Miniseries TV 작품 데이터다.
+        product_type=product.product_type,
+        poster_url=product.poster_url,
+        genres=product.genres,
+        networks=product.networks,
+        episode_count=product.episode_count,
+        rating=float(product.rating) if product.rating is not None else None,
+        popularity=float(product.popularity) if product.popularity is not None else None,
+        lead_actors=product.lead_actors,
+        match_similarity=(
+            float(product.match_similarity) if product.match_similarity is not None else None
+        ),
+        place_count=place_count,
     )

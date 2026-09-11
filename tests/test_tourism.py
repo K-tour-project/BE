@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
+from app.features.places.service import _related_tourism_places
 from app.features.places.tourism import matches, list_tourism, tourism_detail
-from app.integrations.tour_api import TourApiClient
+from app.integrations.tour_api import TourApiClient, intro_details
 
 
 class TourismTests(unittest.IsolatedAsyncioTestCase):
@@ -68,6 +69,34 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(await api.detail_images("1")), 2)
             self.assertNotIn("serviceKey", api.calls[0].params)
 
+    async def test_keyword_search_only_includes_attractions_and_cultural_facilities(self):
+        requests = []
+
+        def handle(request):
+            requests.append(request)
+            content_type = request.url.params["contentTypeId"]
+            item = {"contentid": content_type, "contenttypeid": content_type}
+            body = {"totalCount": 1, "items": {"item": item}}
+            return httpx.Response(200, json={"response": {"header": {"resultCode": "0000"}, "body": body}})
+
+        with patch("app.integrations.tour_api.settings") as settings:
+            settings.tour_api_ready = True
+            settings.TOUR_API_KEY = "test"
+            settings.TOUR_API_TIMEOUT = 5
+            settings.TOUR_API_APP_NAME = "test"
+            settings.TOUR_API_BASE = "https://example.test"
+            api = TourApiClient()
+            await api.close()
+            api._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+            async with api:
+                rows = await api.search_keyword("공원")
+
+        self.assertEqual({row["contenttypeid"] for row in rows}, {"12", "14"})
+        self.assertEqual(
+            {request.url.params["contentTypeId"] for request in requests},
+            {"12", "14"},
+        )
+
     async def test_list_counts_names_and_classification(self):
         db = AsyncMock()
         db.get.return_value = SimpleNamespace(bjd_cd="1111000000", level="2")
@@ -86,17 +115,66 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.items[0].place_ids, [7])
 
     async def test_detail_uses_content_id_and_original_images(self):
+        db = AsyncMock()
+        db.execute.return_value = SimpleNamespace(all=lambda: [])
         api = AsyncMock()
         api.__aenter__.return_value = api
         api.calls = []
-        api.detail_common.return_value = dict(title="공원", overview="소개<br>설명", homepage='<a href="https://example.test">홈페이지</a>', addr1="서울", tel="02-123")
+        api.detail_common.return_value = dict(title="공원", overview="소개<br>설명", homepage='<a href="https://example.test">홈페이지</a>', addr1="서울", tel="02-123", contenttypeid="12")
+        api.detail_intro.return_value = dict(
+            usetime="09:00~18:00", restdate="월요일", parking="가능", chkpet="불가"
+        )
         api.detail_images.return_value = [{"originimgurl": "original"}, {"originimgurl": "original"}, {}]
         with patch("app.features.places.tourism.TourApiClient", return_value=api):
-            result = await tourism_detail(AsyncMock(), "123")
+            result = await tourism_detail(db, "123")
         self.assertEqual(result.images, ["original"])
         self.assertEqual(result.homepage, "https://example.test")
         self.assertEqual(result.address, "서울")
+        self.assertEqual(result.use_time, "09:00~18:00")
+        self.assertEqual(result.parking, "가능")
+        self.assertEqual(result.pet_allowed, "불가")
         api.detail_common.assert_awaited_once_with("123")
+
+    def test_intro_details_supports_cultural_facilities(self):
+        self.assertEqual(
+            intro_details(
+                {
+                    "usetimeculture": "10:00~20:00",
+                    "restdateculture": "화요일",
+                    "parkingculture": "주차 가능",
+                    "chkpetculture": "안내견 가능",
+                },
+                "14",
+            ),
+            ("10:00~20:00", "화요일", "주차 가능", "안내견 가능"),
+        )
+
+    async def test_related_places_are_resolved_to_clickable_content_ids(self):
+        api = AsyncMock()
+        api.related_spots.return_value = [
+            {
+                "tAtsNm": "현재 공원",
+                "rlteTatsCd": f"related-{i}",
+                "rlteTatsNm": f"연관 장소 {i}",
+                "rlteRegnNm": "서울특별시",
+                "rlteSignguNm": "종로구",
+                "rlteRank": str(i),
+            }
+            for i in range(1, 8)
+        ]
+        api.search_keyword.side_effect = [
+            [{"contentid": str(100 + i), "title": f"연관 장소 {i}"}]
+            for i in range(1, 8)
+        ]
+        common = {"title": "현재 공원", "lDongRegnCd": "11", "lDongSignguCd": "11110"}
+        row = SimpleNamespace(name="현재 공원", region_bjd_cd="1111000000")
+
+        result = await _related_tourism_places(api, common, row)
+
+        self.assertEqual(len(result), 6)
+        self.assertEqual(result[0].content_id, "101")
+        self.assertEqual(result[0].detail_path, "/tourism-places/101")
+        self.assertEqual(result[0].sido_name, "서울특별시")
 
 
 if __name__ == "__main__":

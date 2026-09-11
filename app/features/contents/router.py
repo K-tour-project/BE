@@ -10,10 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_db
 from app.features.contents import service
 from app.features.contents.schema import (
-    ContentDetail,
     ContentResolveRequest,
     ContentResolveResponse,
     ContentSummary,
+    ProductDetail,
 )
 from app.features.places.schema import PlaceInContent
 from app.features.places.service import places_of_content
@@ -50,17 +50,18 @@ async def resolve_content(
     return ContentResolveResponse(candidates=await service.resolve_contents(db, body.query))
 
 
-@router.get("/{content_id}", response_model=ContentDetail)
-async def get_content(content_id: int, db: AsyncSession = Depends(get_db)):
-    detail = await service.get_content(db, content_id)
+@router.get("/{product_id}", response_model=ProductDetail)
+async def get_content(product_id: int, db: AsyncSession = Depends(get_db)):
+    """products 테이블 기반 작품 상세. 출처·적재 관리 컬럼은 노출하지 않는다."""
+    detail = await service.get_product(db, product_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="해당 작품을 찾을 수 없습니다.")
     return detail
 
 
-@router.get("/{content_id}/places", response_model=Page[PlaceInContent])
+@router.get("/{product_id}/places", response_model=Page[PlaceInContent])
 async def get_content_places(
-    content_id: int,
+    product_id: int,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -69,7 +70,7 @@ async def get_content_places(
 
     `location`은 항상 있고(좌표 100%), `scene_description`은 75%가 비어 있다.
     """
-    if await service.get_content(db, content_id) is None:
+    if await service.get_product(db, product_id) is None:
         raise HTTPException(status_code=404, detail="해당 작품을 찾을 수 없습니다.")
-    items, total = await places_of_content(db, content_id, limit, offset)
+    items, total = await places_of_content(db, product_id, limit, offset)
     return Page[PlaceInContent](items=items, total=total)

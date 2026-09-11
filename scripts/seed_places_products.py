@@ -13,6 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from geoalchemy2 import WKTElement
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import AsyncSessionLocal, engine
@@ -79,7 +80,7 @@ def load_rows(filename, columns):
     return rows
 
 
-async def seed(dry_run=False):
+async def seed(dry_run=False, sync_places=False, sync_products=False):
     batches = [(Place, load_rows("places.csv", PLACE_COLUMNS)),
                (Product, load_rows("products.csv", PRODUCT_COLUMNS))]
     for model, rows in batches:
@@ -98,6 +99,24 @@ async def seed(dry_run=False):
                     )
                     count += len(result.all())
                 print(f"{model.__tablename__}: {count} inserted")
+                if model is Place and sync_places:
+                    current_hashes = [row["csv_row_hash"] for row in rows]
+                    result = await session.execute(
+                        delete(Place).where(
+                            Place.csv_row_hash.is_not(None),
+                            Place.csv_row_hash.not_in(current_hashes),
+                        )
+                    )
+                    print(f"places: {result.rowcount} stale rows deleted")
+                if model is Product and sync_products:
+                    current_hashes = [row["csv_row_hash"] for row in rows]
+                    result = await session.execute(
+                        delete(Product).where(
+                            Product.csv_row_hash.is_not(None),
+                            Product.csv_row_hash.not_in(current_hashes),
+                        )
+                    )
+                    print(f"products: {result.rowcount} stale rows deleted")
         print("Commit complete")
     finally:
         await engine.dispose()
@@ -106,4 +125,15 @@ async def seed(dry_run=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
-    asyncio.run(seed(parser.parse_args().dry_run))
+    parser.add_argument(
+        "--sync-places",
+        action="store_true",
+        help="places.csv에서 제거되거나 수정된 이전 CSV 행도 DB에서 삭제",
+    )
+    parser.add_argument(
+        "--sync-products",
+        action="store_true",
+        help="products.csv에서 제거되거나 수정된 이전 CSV 행도 DB에서 삭제",
+    )
+    args = parser.parse_args()
+    asyncio.run(seed(args.dry_run, args.sync_places, args.sync_products))

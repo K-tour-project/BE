@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -26,16 +27,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.features.contents.schema import ContentOnPlace
-from app.features.places.matching import RETRY_AFTER_DAYS, match_place
-from app.features.places.schema import PlaceDetail, PlaceInContent, PlaceOnMap, TourDetail
+from app.features.places.matching import RETRY_AFTER_DAYS, match_place, title_similarity
+from app.features.places.schema import (
+    PlaceDetail,
+    PlaceInContent,
+    PlaceOnMap,
+    RelatedTourismPlace,
+    TourDetail,
+)
 from app.features.regions.service import region_ref, region_scope_ids
 from app.integrations.call_log import save_calls
 from app.integrations.tour_api import (
     TourApiClient,
     TourApiKeyMissing,
-    intro_hours,
+    intro_details,
 )
-from app.models import Content, ContentPlaceMapping, Place, Region
+from app.models import Place, Product, Region
 from app.shared.schema import Location
 
 logger = logging.getLogger(__name__)
@@ -56,6 +63,7 @@ def _place_select():
             Place.road_address,
             Place.region_id,
             Region.name.label("region_name"),
+            Region.bjd_cd.label("region_bjd_cd"),
             parent.name.label("parent_name"),
             _LAT.label("lat"),
             _LNG.label("lng"),
@@ -69,54 +77,46 @@ def _place_select():
 async def _contents_by_place(
     db: AsyncSession, place_ids: list[int], content_id: int | None = None
 ) -> dict[int, list[ContentOnPlace]]:
-    """N+1 방지: 여러 장소의 작품을 한 번에 가져와 place_id로 묶는다."""
+    """같은 장소명의 모든 places.title을 products와 연결한다."""
     if not place_ids:
         return {}
+    anchors = (await db.execute(select(Place.place_id, Place.name).where(Place.place_id.in_(place_ids)))).all()
+    names = {r.name for r in anchors}
     stmt = (
-        select(
-            ContentPlaceMapping.place_id,
-            Content.content_id,
-            Content.title_ko,
-            Content.production_year,
-            Content.poster_url,
-            ContentPlaceMapping.scene_description,
-        )
-        .join(Content, Content.content_id == ContentPlaceMapping.content_id)
-        .where(ContentPlaceMapping.place_id.in_(place_ids))
-        .order_by(Content.production_year.desc().nulls_last())
+        select(Place.name, Product.product_id, Product.title, Product.poster_url)
+        .join(Product, Product.title == Place.title)
+        .where(Place.name.in_(names))
+        .distinct()
+        .order_by(Product.product_id)
     )
     if content_id is not None:
-        stmt = stmt.where(ContentPlaceMapping.content_id == content_id)
-
-    out: dict[int, list[ContentOnPlace]] = {}
+        stmt = stmt.where(Product.product_id == content_id)
+    products_by_name: dict[str, list[ContentOnPlace]] = {}
     for r in (await db.execute(stmt)).all():
-        out.setdefault(r.place_id, []).append(
+        products_by_name.setdefault(r.name, []).append(
             ContentOnPlace(
-                content_id=r.content_id,
-                title_ko=r.title_ko,
-                production_year=r.production_year,
+                product_id=r.product_id,
+                title=r.title,
+                category="drama",
                 poster_url=r.poster_url,
-                scene_description=r.scene_description,
+                detail_path=f"/contents/{r.product_id}",
             )
         )
+    out: dict[int, list[ContentOnPlace]] = {}
+    for anchor in anchors:
+        out[anchor.place_id] = products_by_name.get(anchor.name, [])
     return out
 
 
 async def places_of_content(
     db: AsyncSession, content_id: int, limit: int, offset: int
 ) -> tuple[list[PlaceInContent], int]:
-    """작품의 촬영지 목록. 장면설명은 그 작품 기준으로 붙인다. (`GET /contents/{id}/places`)"""
-    base = _place_select().add_columns(
-        ContentPlaceMapping.scene_description, ContentPlaceMapping.episode
-    ).join(
-        ContentPlaceMapping, ContentPlaceMapping.place_id == Place.place_id
-    ).where(ContentPlaceMapping.content_id == content_id)
-
-    total = await db.scalar(
-        select(func.count())
-        .select_from(ContentPlaceMapping)
-        .where(ContentPlaceMapping.content_id == content_id)
-    )
+    """products 작품의 촬영지 목록 (`places.title = products.title`)."""
+    title = await db.scalar(select(Product.title).where(Product.product_id == content_id))
+    if title is None:
+        return [], 0
+    base = _place_select().where(Place.title == title)
+    total = await db.scalar(select(func.count()).select_from(Place).where(Place.title == title))
     rows = (await db.execute(base.order_by(Place.name).limit(limit).offset(offset))).all()
 
     return [
@@ -127,21 +127,17 @@ async def places_of_content(
             address=r.address,
             road_address=r.road_address,
             region=region_ref(r.region_id, r.region_name, r.parent_name),
-            scene_description=r.scene_description,
-            episode=r.episode,
+            scene_description=None,
+            episode=None,
         )
         for r in rows
     ], (total or 0)
 
 
 def _shoot_count_sq():
-    """이 장소에서 촬영된 작품 수(상관 서브쿼리). '대표 촬영지' 정렬의 기준."""
-    return (
-        select(func.count())
-        .select_from(ContentPlaceMapping)
-        .where(ContentPlaceMapping.place_id == Place.place_id)
-        .scalar_subquery()
-    )
+    """동일 장소명의 촬영 작품 수."""
+    sibling = aliased(Place)
+    return select(func.count(func.distinct(sibling.title))).where(sibling.name == Place.name).scalar_subquery()
 
 
 async def places_in_region(
@@ -166,14 +162,9 @@ async def places_in_region(
     count_stmt = select(func.count()).select_from(Place).where(Place.region_id.in_(scope))
 
     if content_id is not None:
-        # 유저플로우 4b — 지도에서 영화 하나를 골랐을 때 그 작품 촬영지만 남긴다.
-        sub = (
-            select(ContentPlaceMapping.place_id)
-            .where(ContentPlaceMapping.content_id == content_id)
-            .scalar_subquery()
-        )
-        stmt = stmt.where(Place.place_id.in_(sub))
-        count_stmt = count_stmt.where(Place.place_id.in_(sub))
+        product_title = select(Product.title).where(Product.product_id == content_id).scalar_subquery()
+        stmt = stmt.where(Place.title == product_title)
+        count_stmt = count_stmt.where(Place.title == product_title)
 
     order = (
         [Place.name] if sort == "name" else [_shoot_count_sq().desc(), Place.name]
@@ -206,6 +197,91 @@ async def _place_row(db: AsyncSession, place_id: int):
             .where(Place.place_id == place_id)
         )
     ).first()
+
+
+async def _related_tourism_places(
+    api: TourApiClient, common: dict, row, *, limit: int = 6
+) -> list[RelatedTourismPlace]:
+    """연관관광지 서비스 결과를 상세 조회 가능한 TourAPI content ID와 연결한다."""
+    bjd_cd = str(row.region_bjd_cd or "")
+    area_cd = str(common.get("lDongRegnCd") or bjd_cd[:2])
+    signgu_cd = str(common.get("lDongSignguCd") or bjd_cd[:5])
+    if not area_cd or not signgu_cd:
+        return []
+
+    rows = await api.related_spots(area_cd, signgu_cd, rows=100)
+    title = str(common.get("title") or row.name or "")
+    direct = [
+        item for item in rows
+        if title_similarity(str(item.get("tAtsNm") or ""), [title]) >= 0.75
+    ]
+
+    # 현재 장소가 중심관광지가 아니라 연관관광지 쪽에만 있으면 중심관광지를 역으로 제안한다.
+    candidates = direct
+    reverse = False
+    if not candidates:
+        candidates = [
+            item for item in rows
+            if title_similarity(str(item.get("rlteTatsNm") or ""), [title]) >= 0.75
+        ]
+        reverse = True
+
+    candidates.sort(key=lambda item: int(item.get("rlteRank") or 999999))
+    unique: list[dict] = []
+    seen: set[str] = set()
+    for item in candidates:
+        name_key = "tAtsNm" if reverse else "rlteTatsNm"
+        name = str(item.get(name_key) or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        unique.append(item)
+        # 일부 항목은 TourAPI 상세 ID로 연결되지 않을 수 있어 여유 있게 조회한다.
+        if len(unique) >= limit * 2:
+            break
+
+    searches = await asyncio.gather(
+        *(api.search_keyword(str(item.get("tAtsNm" if reverse else "rlteTatsNm") or ""), rows=5) for item in unique),
+        return_exceptions=True,
+    )
+    resolved: list[RelatedTourismPlace] = []
+    for item, hits in zip(unique, searches):
+        if isinstance(hits, Exception):
+            continue
+        name_key = "tAtsNm" if reverse else "rlteTatsNm"
+        id_key = "tAtsCd" if reverse else "rlteTatsCd"
+        sido_key = "areaNm" if reverse else "rlteRegnNm"
+        sigungu_key = "signguNm" if reverse else "rlteSignguNm"
+        name = str(item.get(name_key) or "")
+        ranked = sorted(
+            hits,
+            key=lambda hit: title_similarity(str(hit.get("title") or ""), [name]),
+            reverse=True,
+        )
+        hit = next(
+            (
+                candidate for candidate in ranked
+                if candidate.get("contentid")
+                and title_similarity(str(candidate.get("title") or ""), [name]) >= 0.75
+            ),
+            None,
+        )
+        if hit is None:
+            continue
+        content_id = str(hit["contentid"])
+        resolved.append(
+            RelatedTourismPlace(
+                related_id=str(item.get(id_key) or ""),
+                content_id=content_id,
+                name=name,
+                sido_name=item.get(sido_key) or None,
+                sigungu_name=item.get(sigungu_key) or None,
+                detail_path=f"/tourism-places/{content_id}",
+            )
+        )
+        if len(resolved) >= limit:
+            break
+    return resolved
 
 
 # TourAPI 응답의 homepage는 보통 `<a href="http://...">...</a>` 형태로 온다.
@@ -327,12 +403,14 @@ async def get_place_detail(
                 return PlaceDetail(**base, detail=None)
 
             # ③ 운영시간·휴무일, ④ 이미지 — 부가 정보라 실패해도 본문은 살린다.
-            use_time = rest_date = None
+            use_time = rest_date = parking = pet_allowed = None
             try:
                 intro = await api.detail_intro(tour_id, str(common.get("contenttypeid") or ""))
-                use_time, rest_date = intro_hours(intro, common.get("contenttypeid"))
+                use_time, rest_date, parking, pet_allowed = intro_details(
+                    intro, common.get("contenttypeid")
+                )
             except Exception:  # noqa: BLE001
-                logger.warning("detailIntro2 실패 (contentid=%s) — 운영시간 생략", tour_id)
+                logger.warning("detailIntro2 실패 (contentid=%s) — 이용정보 생략", tour_id)
 
             images: list[str] = []
             try:
@@ -344,6 +422,12 @@ async def get_place_detail(
             except Exception:  # noqa: BLE001
                 logger.warning("detailImage2 실패 (contentid=%s) — 이미지 생략", tour_id)
 
+            related_places: list[RelatedTourismPlace] = []
+            try:
+                related_places = await _related_tourism_places(api, common, row, limit=6)
+            except Exception:  # noqa: BLE001
+                logger.warning("연관 관광지 조회 실패 (contentid=%s) — 목록 생략", tour_id)
+
             return PlaceDetail(
                 **base,
                 detail=TourDetail(
@@ -354,8 +438,11 @@ async def get_place_detail(
                     homepage=_clean_url(common.get("homepage")),
                     use_time=use_time,
                     rest_date=rest_date,
+                    parking=parking,
+                    pet_allowed=pet_allowed,
                     images=images,
                 ),
+                related_places=related_places,
             )
     finally:
         # ★ 성공·실패·예외 무관하게 호출 내역을 남긴다 — 이게 '실시간 호출' 입증이다.

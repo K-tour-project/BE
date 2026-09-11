@@ -1,4 +1,5 @@
 """지역 관광지 목록 및 content_id 기반 상세. 외부 응답은 저장하지 않는다."""
+import asyncio
 import math
 import re
 from typing import Literal
@@ -10,10 +11,11 @@ from sqlalchemy import cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
+from app.features.contents.schema import ContentOnPlace
 from app.features.places.matching import distance_m, name_variants, title_similarity
-from app.features.places.service import _clean_text, _clean_url
+from app.features.places.service import _clean_text, _clean_url, _contents_by_place
 from app.integrations.call_log import save_calls
-from app.integrations.tour_api import TourApiClient, TourApiError
+from app.integrations.tour_api import TourApiClient, TourApiError, intro_details
 from app.models import Place, Region
 from app.shared.schema import Location
 
@@ -51,7 +53,12 @@ class TourismDetail(BaseModel):
     tel: str | None = None
     address: str | None = None
     address_detail: str | None = None
+    use_time: str | None = None
+    rest_date: str | None = None
+    parking: str | None = None
+    pet_allowed: str | None = None
     images: list[str] = Field(default_factory=list)
+    contents: list[ContentOnPlace] = Field(default_factory=list)
 
 
 def normalize(value):
@@ -174,13 +181,53 @@ async def tourism_detail(db, content_id):
             common = await api.detail_common(content_id)
             if not common:
                 raise HTTPException(404, "해당 관광지를 찾을 수 없습니다.")
-            images = await api.detail_images(content_id)
+            content_type_id = str(common.get("contenttypeid") or "")
+            intro, images = await asyncio.gather(
+                api.detail_intro(content_id, content_type_id),
+                api.detail_images(content_id),
+            )
+            use_time, rest_date, parking, pet_allowed = intro_details(
+                intro, content_type_id
+            )
+
+        # 연관 관광지 상세에서도 이 장소에서 촬영된 작품을 함께 제공한다.
+        lat_expr = func.coalesce(Place.latitude, func.ST_Y(cast(Place.geom, Geometry)))
+        lng_expr = func.coalesce(Place.longitude, func.ST_X(cast(Place.geom, Geometry)))
+        filters = [Place.tour_content_id == content_id]
+        if (bounds := candidate_bounds([common])) is not None:
+            min_lat, max_lat, min_lng, max_lng = bounds
+            filters.append(
+                lat_expr.between(min_lat, max_lat) & lng_expr.between(min_lng, max_lng)
+            )
+        candidates = (
+            await db.execute(
+                select(
+                    Place.place_id,
+                    Place.name,
+                    Place.address,
+                    lat_expr.label("lat"),
+                    lng_expr.label("lng"),
+                ).where(or_(*filters))
+            )
+        ).all()
+        matched_ids = [p.place_id for p in candidates if matches(common, p)]
+        by_place = await _contents_by_place(db, matched_ids)
+        contents = []
+        seen_content_ids = set()
+        for place_id in matched_ids:
+            for content in by_place.get(place_id, []):
+                if content.content_id not in seen_content_ids:
+                    seen_content_ids.add(content.content_id)
+                    contents.append(content)
         return TourismDetail(
             content_id=content_id, name=common.get("title") or "",
             overview=_clean_text(common.get("overview")), homepage=_clean_url(common.get("homepage")),
             tel=common.get("tel") or None, address=common.get("addr1") or None,
             address_detail=common.get("addr2") or None,
+            use_time=use_time, rest_date=rest_date,
+            parking=parking, pet_allowed=pet_allowed,
             images=list(dict.fromkeys(img["originimgurl"] for img in images if img.get("originimgurl"))),
+            contents=contents,
         )
     finally:
         await save_calls(db, api.calls)

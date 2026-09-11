@@ -39,10 +39,10 @@ TARGETS_SQL = text(
            r.name AS region_name,
            ST_Y(p.geom::geometry) AS lat,
            ST_X(p.geom::geometry) AS lng,
-           count(m.mapping_id) AS shoot_count
+           count(DISTINCT sibling.title) AS shoot_count
     FROM places p
     LEFT JOIN regions r ON r.region_id = p.region_id
-    JOIN content_place_mappings m ON m.place_id = p.place_id
+    LEFT JOIN places sibling ON sibling.name = p.name
     WHERE p.tour_content_id IS NULL
       AND p.geom IS NOT NULL
       -- 최근에 시도해 실패한 곳은 건너뛴다(--retry-failed로 무시 가능).

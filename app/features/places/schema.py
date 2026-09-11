@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.features.contents.schema import ContentOnPlace
 from app.shared.schema import Location, RegionRef
@@ -54,7 +54,20 @@ class TourDetail(BaseModel):
     homepage: str | None = None
     use_time: str | None = None  # detailIntro2. 타입에 따라 없을 수 있음
     rest_date: str | None = None
-    images: list[str] = []
+    parking: str | None = None
+    pet_allowed: str | None = None
+    images: list[str] = Field(default_factory=list)
+
+
+class RelatedTourismPlace(BaseModel):
+    """연관 관광지 한 건. content_id/detail_path로 관광지 상세 화면을 연다."""
+
+    related_id: str
+    content_id: str
+    name: str
+    sido_name: str | None = None
+    sigungu_name: str | None = None
+    detail_path: str
 
 
 class PlaceDetail(BaseModel):
@@ -73,3 +86,4 @@ class PlaceDetail(BaseModel):
     region: RegionRef | None = None
     contents: list[ContentOnPlace]
     detail: TourDetail | None = None
+    related_places: list[RelatedTourismPlace] = Field(default_factory=list)

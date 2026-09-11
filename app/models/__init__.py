@@ -19,9 +19,7 @@
 from app.core.db import Base
 from app.models.api_log import ApiCallLog
 from app.models.auth import EmailVerification, RefreshToken
-from app.models.content import Content
 from app.models.course import Course, CoursePlace
-from app.models.mapping import ContentPlaceMapping
 from app.models.place import Place
 from app.models.product import Product
 from app.models.region import Region
@@ -36,10 +34,8 @@ __all__ = [
     "Base",
     "User",
     "Region",
-    "Content",
     "Place",
     "Product",
-    "ContentPlaceMapping",
     "Course",
     "CoursePlace",
     "ApiCallLog",
