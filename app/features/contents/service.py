@@ -10,12 +10,14 @@ from __future__ import annotations
 
 from sqlalchemy import Float, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.features.contents.category import category_label
 from app.features.contents.schema import (
     ContentCandidate,
     ContentSummary,
     ProductDetail,
+    MovieProductDetail,
+    DramaProductDetail,
 )
 from app.models import Place, Product
 
@@ -61,6 +63,7 @@ async def search_contents(
     rows = (
         await db.execute(
             select(Product, pc, score)
+            .options(selectinload(Product.drama_detail))
             .where(where)
             .order_by(score.desc(), pc.desc(), Product.first_air_date.desc().nulls_last())
             .limit(limit)
@@ -73,8 +76,8 @@ async def search_contents(
             product_id=c.product_id,
             title=c.title,
             first_air_date=c.first_air_date.isoformat() if c.first_air_date else None,
-            category=category_label(c.product_type),
-            product_type=c.product_type,
+            category=c.category,
+            product_type=c.drama_detail.content_type if c.category == "DRAMA" and c.drama_detail else None,
             genres=c.genres,
             poster_url=c.poster_url,
             rating=float(c.rating) if c.rating is not None else None,
@@ -106,7 +109,7 @@ async def resolve_contents(db: AsyncSession, query: str, limit: int = 10) -> lis
             product_id=c.product_id,
             title=c.title,
             first_air_date=c.first_air_date.isoformat() if c.first_air_date else None,
-            category=category_label(c.product_type),
+            category=c.category,
             poster_url=c.poster_url,
             score=round(float(s), 2),
         )
@@ -117,26 +120,37 @@ async def resolve_contents(db: AsyncSession, query: str, limit: int = 10) -> lis
 async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None:
     row = (
         await db.execute(
-            select(Product, _place_count_sq().label("pc")).where(Product.product_id == product_id)
+            select(Product, _place_count_sq().label("pc"))
+            .options(selectinload(Product.movie_detail), selectinload(Product.drama_detail))
+            .where(Product.product_id == product_id)
         )
     ).first()
     if row is None:
         return None
     product, place_count = row
-    return ProductDetail(
+    common = dict(
         product_id=product.product_id,
         title=product.title,
         overview=product.overview,
-        is_overview_translated=product.is_overview_translated,
         first_air_date=product.first_air_date.isoformat() if product.first_air_date else None,
-        category=category_label(product.product_type),
-        product_type=product.product_type,
+        category=product.category,
         poster_url=product.poster_url,
         genres=product.genres,
-        networks=product.networks,
-        episode_count=product.episode_count,
         rating=float(product.rating) if product.rating is not None else None,
         popularity=float(product.popularity) if product.popularity is not None else None,
-        lead_actors=product.lead_actors,
         place_count=place_count,
     )
+    if product.category == "MOVIE":
+        movie = product.movie_detail
+        return MovieProductDetail(**common, runtime=movie.runtime if movie else None)
+    if product.category == "DRAMA":
+        drama = product.drama_detail
+        return DramaProductDetail(
+            **common,
+            is_overview_translated=drama.overview_translated if drama else None,
+            product_type=drama.content_type if drama else None,
+            networks=drama.networks if drama else None,
+            episode_count=drama.episode_count if drama else None,
+            lead_actors=drama.cast if drama else None,
+        )
+    raise ValueError(f"Invalid product category: {product.category}")
