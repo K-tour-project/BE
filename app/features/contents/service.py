@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import Float, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.features.contents.category import category_label
 from app.features.contents.schema import (
     ContentCandidate,
     ContentSummary,
@@ -72,7 +73,7 @@ async def search_contents(
             product_id=c.product_id,
             title=c.title,
             first_air_date=c.first_air_date.isoformat() if c.first_air_date else None,
-            category="drama",
+            category=category_label(c.product_type),
             product_type=c.product_type,
             genres=c.genres,
             poster_url=c.poster_url,
@@ -105,7 +106,7 @@ async def resolve_contents(db: AsyncSession, query: str, limit: int = 10) -> lis
             product_id=c.product_id,
             title=c.title,
             first_air_date=c.first_air_date.isoformat() if c.first_air_date else None,
-            category="drama",
+            category=category_label(c.product_type),
             poster_url=c.poster_url,
             score=round(float(s), 2),
         )
@@ -128,7 +129,7 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
         overview=product.overview,
         is_overview_translated=product.is_overview_translated,
         first_air_date=product.first_air_date.isoformat() if product.first_air_date else None,
-        category="drama",  # 현재 products.csv는 Scripted/Miniseries TV 작품 데이터다.
+        category=category_label(product.product_type),
         product_type=product.product_type,
         poster_url=product.poster_url,
         genres=product.genres,

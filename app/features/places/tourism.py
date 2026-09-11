@@ -224,8 +224,8 @@ async def tourism_detail(db, content_id):
             overview=_clean_text(common.get("overview")), homepage=_clean_url(common.get("homepage")),
             tel=common.get("tel") or None, address=common.get("addr1") or None,
             address_detail=common.get("addr2") or None,
-            use_time=use_time, rest_date=rest_date,
-            parking=parking, pet_allowed=pet_allowed,
+            use_time=_clean_text(use_time), rest_date=_clean_text(rest_date),
+            parking=_clean_text(parking), pet_allowed=_clean_text(pet_allowed),
             images=list(dict.fromkeys(img["originimgurl"] for img in images if img.get("originimgurl"))),
             contents=contents,
         )

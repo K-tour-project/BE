@@ -20,12 +20,14 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from html import unescape
 
 from geoalchemy2 import Geography, Geometry
 from sqlalchemy import cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.features.contents.category import category_label
 from app.features.contents.schema import ContentOnPlace
 from app.features.places.matching import RETRY_AFTER_DAYS, match_place, title_similarity
 from app.features.places.schema import (
@@ -83,7 +85,13 @@ async def _contents_by_place(
     anchors = (await db.execute(select(Place.place_id, Place.name).where(Place.place_id.in_(place_ids)))).all()
     names = {r.name for r in anchors}
     stmt = (
-        select(Place.name, Product.product_id, Product.title, Product.poster_url)
+        select(
+            Place.name,
+            Product.product_id,
+            Product.title,
+            Product.product_type,
+            Product.poster_url,
+        )
         .join(Product, Product.title == Place.title)
         .where(Place.name.in_(names))
         .distinct()
@@ -97,7 +105,7 @@ async def _contents_by_place(
             ContentOnPlace(
                 product_id=r.product_id,
                 title=r.title,
-                category="drama",
+                category=category_label(r.product_type),
                 poster_url=r.poster_url,
                 detail_path=f"/contents/{r.product_id}",
             )
@@ -285,7 +293,9 @@ async def _related_tourism_places(
 
 
 # TourAPI 응답의 homepage는 보통 `<a href="http://...">...</a>` 형태로 온다.
-_HREF = re.compile(r'href=[\'"]?([^\'" >]+)')
+_HREF = re.compile(r'href\s*=\s*[\'"]?([^\'" >]+)', re.IGNORECASE)
+_URL = re.compile(r'https?://[^\s<>\'"]+', re.IGNORECASE)
+_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
 _TAGS = re.compile(r"<[^>]+>")
 
 
@@ -293,15 +303,22 @@ def _clean_url(raw: str | None) -> str | None:
     """homepage 필드에서 URL만 뽑는다. 앵커 태그를 그대로 내보내면 앱이 처리해야 한다."""
     if not raw:
         return None
-    m = _HREF.search(raw)
-    return (m.group(1) if m else _TAGS.sub("", raw).strip()) or None
+    decoded = unescape(raw)
+    href = _HREF.search(decoded)
+    if href:
+        return href.group(1).strip()
+    text = _TAGS.sub(" ", decoded)
+    url = _URL.search(text)
+    return url.group(0).rstrip(".,);]") if url else None
 
 
 def _clean_text(raw: str | None) -> str | None:
     """개요에 섞여 오는 <br> 등을 걷어낸다."""
     if not raw:
         return None
-    return _TAGS.sub("", raw.replace("<br>", "\n").replace("<br/>", "\n")).strip() or None
+    text = _BR.sub("\n", raw)
+    text = unescape(_TAGS.sub("", text)).replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(line.strip() for line in text.split("\n")).strip() or None
 
 
 def _recently_attempted(attempted_at: datetime | None) -> bool:
@@ -436,10 +453,10 @@ async def get_place_detail(
                     overview=_clean_text(common.get("overview")),
                     tel=common.get("tel") or None,
                     homepage=_clean_url(common.get("homepage")),
-                    use_time=use_time,
-                    rest_date=rest_date,
-                    parking=parking,
-                    pet_allowed=pet_allowed,
+                    use_time=_clean_text(use_time),
+                    rest_date=_clean_text(rest_date),
+                    parking=_clean_text(parking),
+                    pet_allowed=_clean_text(pet_allowed),
                     images=images,
                     image_count=len(images),
                 ),

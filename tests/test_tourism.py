@@ -4,13 +4,33 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from app.features.places.service import _related_tourism_places
+from app.features.contents.category import category_label
+from app.features.places.service import _clean_text, _clean_url, _related_tourism_places
 from app.features.places.schema import TourDetail
 from app.features.places.tourism import matches, list_tourism, tourism_detail
 from app.integrations.tour_api import TourApiClient, intro_details
 
 
 class TourismTests(unittest.IsolatedAsyncioTestCase):
+    def test_content_categories_are_korean(self):
+        self.assertEqual(category_label("Movie"), "영화")
+        self.assertEqual(category_label("Scripted"), "드라마")
+        self.assertEqual(category_label("Miniseries"), "드라마")
+
+    def test_tour_api_html_is_normalized_for_frontend(self):
+        self.assertEqual(
+            _clean_text("상시 개방<BR />연중무휴 &amp; 무료"),
+            "상시 개방\n연중무휴 & 무료",
+        )
+        self.assertEqual(
+            _clean_url('<a href="https://example.test/path?a=1&amp;b=2">홈페이지</a>'),
+            "https://example.test/path?a=1&b=2",
+        )
+        self.assertEqual(
+            _clean_url("공식 홈페이지: https://example.test/info"),
+            "https://example.test/info",
+        )
+
     def test_place_detail_reports_image_count(self):
         detail = TourDetail(
             tour_content_id="123",
