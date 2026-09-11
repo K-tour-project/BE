@@ -6,10 +6,11 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from geoalchemy2 import Geometry
 from pydantic import BaseModel, Field
-from sqlalchemy import cast, func, select
+from sqlalchemy import cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
+from app.features.places.matching import distance_m, name_variants, title_similarity
 from app.features.places.service import _clean_text, _clean_url
 from app.integrations.call_log import save_calls
 from app.integrations.tour_api import TourApiClient, TourApiError
@@ -67,20 +68,52 @@ def location(row):
         return None
 
 
-def matches(row, place):
-    if place.tour_content_id:
-        return str(place.tour_content_id) == str(row["contentid"])
-    if not normalize(place.name) or normalize(place.name) != normalize(row.get("title")):
-        return False
+def matches(row, place, region_name=None):
+    """요청 중인 TourAPI 관광지와 DB 촬영지가 같은 장소인지 판정한다.
+
+    TourAPI content ID나 응답은 저장하지 않는다. 좌표로 먼저 후보를 제한하고,
+    가까울수록 이름 표기 차이를 더 넓게 허용한다.
+    """
     point = location(row)
     if point is not None and place.lat is not None and place.lng is not None:
-        lat1, lat2 = math.radians(point.lat), math.radians(float(place.lat))
-        dlat = lat2 - lat1
-        dlng = math.radians(float(place.lng) - point.lng)
-        a = math.sin(dlat / 2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlng / 2)**2
-        return 6371000 * 2 * math.asin(math.sqrt(min(1, max(0, a)))) <= 200
+        distance = distance_m(point.lat, point.lng, float(place.lat), float(place.lng))
+        if distance > 1_000:
+            return False
+        similarity = title_similarity(
+            str(row.get("title") or ""),
+            name_variants(str(place.name or ""), region_name),
+        )
+        return (
+            (distance <= 100 and similarity >= 0.70)
+            or (distance <= 500 and similarity >= 0.75)
+            or similarity >= 0.85
+        )
+
+    # 좌표가 없는 데이터는 오탐을 막기 위해 기존의 엄격한 기준을 유지한다.
+    if not normalize(place.name) or normalize(place.name) != normalize(row.get("title")):
+        return False
     address = normalize(row.get("addr1"))
     return bool(address) and address == normalize(place.address)
+
+
+def candidate_bounds(rows):
+    """한 페이지의 유효 좌표를 감싸는 1km 여유 bounding box."""
+    points = [point for row in rows if (point := location(row)) is not None]
+    if not points:
+        return None
+    min_lat = min(point.lat for point in points)
+    max_lat = max(point.lat for point in points)
+    min_lng = min(point.lng for point in points)
+    max_lng = max(point.lng for point in points)
+    mean_lat = (min_lat + max_lat) / 2
+    lat_margin = 1_000 / 111_320
+    lng_margin = 1_000 / max(1, 111_320 * math.cos(math.radians(mean_lat)))
+    return (
+        min_lat - lat_margin,
+        max_lat + lat_margin,
+        min_lng - lng_margin,
+        max_lng + lng_margin,
+    )
 
 
 async def list_tourism(db, region_id, page, size):
@@ -96,20 +129,29 @@ async def list_tourism(db, region_id, page, size):
         regions = (await db.execute(select(Region.bjd_cd, Region.name, Region.level))).all()
         sido_names = {r.bjd_cd[:2]: r.name for r in regions if r.level == "1"}
         sigungu_names = {r.bjd_cd[:5]: r.name for r in regions if r.level == "2"}
-        # 페이지 전체를 한 번의 DB 질의로 비교. CSV의 region_id가 비어 있어도 매칭한다.
+        # 페이지 전체를 한 번의 DB 질의로 비교한다. 이름 완전일치로 후보를
+        # 잘라내지 않고 좌표 범위로 먼저 좁혀 표기 차이가 있는 장소도 판정한다.
         titles = [normalize(row.get("title")) for row in rows]
-        ids = [str(row["contentid"]) for row in rows]
+        lat_expr = func.coalesce(Place.latitude, func.ST_Y(cast(Place.geom, Geometry)))
+        lng_expr = func.coalesce(Place.longitude, func.ST_X(cast(Place.geom, Geometry)))
+        bounds = candidate_bounds(rows)
+        filters = []
+        if bounds is not None:
+            min_lat, max_lat, min_lng, max_lng = bounds
+            filters.append(lat_expr.between(min_lat, max_lat) & lng_expr.between(min_lng, max_lng))
+        # 좌표 없는 TourAPI 행의 엄격한 이름+주소 fallback 후보.
+        if titles:
+            filters.append(func.lower(func.regexp_replace(Place.name, "[^[:alnum:]]", "", "g")).in_(titles))
         candidates = (await db.execute(select(
-            Place.place_id, Place.name, Place.address, Place.tour_content_id,
-            func.coalesce(Place.latitude, func.ST_Y(cast(Place.geom, Geometry))).label("lat"),
-            func.coalesce(Place.longitude, func.ST_X(cast(Place.geom, Geometry))).label("lng"),
-        ).where(
-            Place.tour_content_id.in_(ids) |
-            func.lower(func.regexp_replace(Place.name, "[^[:alnum:]]", "", "g")).in_(titles)
-        ))).all() if rows else []
+            Place.place_id, Place.name, Place.address,
+            lat_expr.label("lat"), lng_expr.label("lng"),
+        ).where(or_(*filters)))).all() if rows and filters else []
         items = []
         for row in rows:
-            matched = sorted({p.place_id for p in candidates if matches(row, p)})
+            matched = sorted({
+                p.place_id for p in candidates
+                if matches(row, p, getattr(region, "name", None))
+            })
             sc = str(row.get("lDongRegnCd") or sido)
             gc = str(row.get("lDongSignguCd") or sigungu or "") or None
             items.append(TourismPlace(

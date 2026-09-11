@@ -15,9 +15,32 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(matches(row, place))
         place.lat = 35.0
         self.assertFalse(matches(row, place))
+        # 저장된 TourAPI ID에는 의존하지 않고 매 요청 좌표와 이름으로 판정한다.
         place.tour_content_id = "123"
-        self.assertTrue(matches(row, place))
+        self.assertFalse(matches(row, place))
         place.tour_content_id = "456"
+        self.assertFalse(matches(row, place))
+
+    def test_nearby_name_variation_is_filming_location(self):
+        row = dict(contentid="123", title="리틀 포레스트 촬영지", mapy="36.1799", mapx="128.6647")
+        place = SimpleNamespace(
+            tour_content_id=None,
+            name="영화 리틀포레스트 촬영지",
+            lat=36.17991,
+            lng=128.66469,
+            address=None,
+        )
+        self.assertTrue(matches(row, place))
+
+    def test_nearby_unrelated_name_is_not_filming_location(self):
+        row = dict(contentid="123", title="다이소 서울역점", mapy="37.555", mapx="126.970")
+        place = SimpleNamespace(
+            tour_content_id=None,
+            name="서울역",
+            lat=37.5551,
+            lng=126.9701,
+            address=None,
+        )
         self.assertFalse(matches(row, place))
 
     async def test_client_total_and_image_pagination(self):
