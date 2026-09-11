@@ -441,6 +441,7 @@ async def get_place_detail(
                     parking=parking,
                     pet_allowed=pet_allowed,
                     images=images,
+                    image_count=len(images),
                 ),
                 related_places=related_places,
             )

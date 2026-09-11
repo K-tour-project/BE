@@ -5,11 +5,21 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 from app.features.places.service import _related_tourism_places
+from app.features.places.schema import TourDetail
 from app.features.places.tourism import matches, list_tourism, tourism_detail
 from app.integrations.tour_api import TourApiClient, intro_details
 
 
 class TourismTests(unittest.IsolatedAsyncioTestCase):
+    def test_place_detail_reports_image_count(self):
+        detail = TourDetail(
+            tour_content_id="123",
+            images=["image-1", "image-2", "image-3"],
+            image_count=3,
+        )
+
+        self.assertEqual(detail.image_count, len(detail.images))
+
     def test_same_name_requires_nearby_location(self):
         row = dict(contentid="123", title="같은 공원", mapy="37.5", mapx="127.0")
         place = SimpleNamespace(tour_content_id=None, name="같은공원", lat=37.5, lng=127.0, address=None)

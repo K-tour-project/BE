@@ -57,6 +57,7 @@ class TourDetail(BaseModel):
     parking: str | None = None
     pet_allowed: str | None = None
     images: list[str] = Field(default_factory=list)
+    image_count: int = 0
 
 
 class RelatedTourismPlace(BaseModel):
