@@ -12,7 +12,7 @@ from sqlalchemy import cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
-from app.features.contents.schema import ContentOnPlace
+from app.features.products.schema import ContentOnPlace
 from app.features.places.matching import distance_m, name_variants, title_similarity
 from app.features.places.service import (
     _clean_text,

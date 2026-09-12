@@ -58,6 +58,14 @@ class User(Base, CreatedAtMixin):
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(  # noqa: F821
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
+    profile: Mapped["UserProfile | None"] = relationship(  # noqa: F821
+        "UserProfile", back_populates="user", lazy="selectin",
+        cascade="all, delete-orphan", passive_deletes=True,
+    )
+
+    @property
+    def profile_image_url(self) -> str | None:
+        return self.profile.profile_image_url if self.profile else None
 
     __table_args__ = (
         UniqueConstraint("auth_provider", "provider_user_id", name="uq_users_provider"),

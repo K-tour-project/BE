@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     TOUR_RLTE_API_BASE: str = "http://apis.data.go.kr/B551011/TarRlteTarService1"
     # 이 서비스는 기준연월(baseYm)이 필수. 202312은 0건, 202606까지 데이터 확인됨.
     TOUR_RLTE_BASE_YM: str = "202606"
+
     # 공사 요구 식별자(모든 요청에 붙는다)
     TOUR_API_APP_NAME: str = "EveryTrip"
     TOUR_API_TIMEOUT: float = 10.0

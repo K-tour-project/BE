@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from app.features.contents.category import category_label
-from app.features.contents.schema import ContentOnPlace
+from app.features.products.category import category_label
+from app.features.products.schema import ContentOnPlace
 from app.features.places.service import _clean_text, _clean_url, _related_tourism_places
 from app.features.places.schema import RelatedTourismPlace, TourDetail
 from app.features.places.tourism import matches, list_tourism, tourism_detail

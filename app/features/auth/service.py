@@ -40,6 +40,7 @@ from app.features.auth.social import SocialProfile
 from app.models.auth import EmailVerification, RefreshToken
 from app.models.common import AuthProvider
 from app.models.user import User
+from app.models.user_profile import UserProfile
 
 # 제공자별 사람이 읽는 이름 — "구글로 가입된 계정입니다" 같은 안내 문구에 쓴다.
 _PROVIDER_LABEL = {
@@ -289,6 +290,7 @@ async def signup(
     email: str,
     password: str,
     nickname: str,
+    profile_image_url: str | None = None,
 ) -> UserOut:
     """③ 회원가입. ②의 통과권이 살아 있어야만 성공한다."""
     email = _normalize_email(email)
@@ -324,6 +326,8 @@ async def signup(
         password_hash=hash_password(password),
         email_verified=True,
     )
+    if profile_image_url:
+        user.profile = UserProfile(profile_image_url=profile_image_url)
     db.add(user)
     verification.consumed_at = _now()
     try:
@@ -410,6 +414,8 @@ async def social_login(
         password_hash=None,
         email_verified=profile.email_verified,
     )
+    if profile.profile_image_url:
+        user.profile = UserProfile(profile_image_url=profile.profile_image_url)
     db.add(user)
     try:
         await db.flush()

@@ -11,6 +11,7 @@ from app.features.regions import service
 from app.features.regions.schema import (
     RegionBoundaryResponse,
     RegionOption,
+    RegionResolveResponse,
 )
 from app.shared.schema import Page
 
@@ -21,6 +22,18 @@ router = APIRouter(prefix="/regions", tags=["regions"])
 async def list_sidos(db: AsyncSession = Depends(get_db)):
     items, total = await service.list_sidos(db)
     return Page[RegionOption](items=items, total=total)
+
+
+@router.get("/resolve", response_model=RegionResolveResponse)
+async def resolve_region(
+    name: str = Query(..., min_length=1, description="지역명(부분일치)"),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """지역명으로 시도·시군구 후보를 찾는다."""
+    return RegionResolveResponse(
+        candidates=await service.resolve_regions(db, name, limit=limit)
+    )
 
 
 @router.get("/{sido_id}/children", response_model=Page[RegionOption])

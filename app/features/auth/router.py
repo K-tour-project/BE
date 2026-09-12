@@ -86,7 +86,10 @@ async def signup(body: SignupRequest, db: DbSession):
     - `409` 이미 가입된 이메일
     - `422` 비밀번호 규칙(8자 이상, 영문+숫자) 미달 — FastAPI가 자동으로 낸다
     """
-    user = await service.signup(db, body.email, body.password, body.nickname)
+    user = await service.signup(
+        db, body.email, body.password, body.nickname,
+        profile_image_url=str(body.profile_image_url) if body.profile_image_url else None,
+    )
     return SignupResponse(message="회원가입이 완료되었습니다.", user=user)
 
 

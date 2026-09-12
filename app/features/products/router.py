@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
-from app.features.contents import service
-from app.features.contents.schema import (
+from app.features.products import service
+from app.features.products.schema import (
     ContentResolveRequest,
     ContentResolveResponse,
     ContentSummary,

@@ -164,6 +164,23 @@ class TourApiClient:
             contentTypeId="12", arrange="A", pageNo=page, numOfRows=size,
         )
 
+    async def nationwide_recent_with_image(
+        self, *, page: int = 1, size: int = 20
+    ) -> tuple[list[dict], int]:
+        """전국 관광지 중 대표 이미지가 있는 최근 수정 항목.
+
+        KorService2의 ``Q`` 정렬은 인기나 방문자순이 아니라 '대표 이미지가 있는
+        수정일순'이다. 홈의 찜 데이터가 부족한 초기 상태를 채우는 용도로만 쓴다.
+        """
+        return await self._get_page(
+            settings.TOUR_API_BASE,
+            "areaBasedList2",
+            contentTypeId="12",
+            arrange="Q",
+            pageNo=page,
+            numOfRows=size,
+        )
+
     # ── 장소 상세 (4단계 핵심) ────────────────────────────────────────────
     async def detail_common(self, content_id: str) -> dict | None:
         """공통정보 — 이름·주소·개요·좌표·홈페이지. 저장 금지(실시간 조회 전용)."""

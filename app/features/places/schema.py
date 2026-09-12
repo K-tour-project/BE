@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.features.contents.schema import ContentOnPlace
+from app.features.products.schema import ContentOnPlace
 from app.shared.schema import Location, RegionRef
 
 
