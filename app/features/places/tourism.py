@@ -2,6 +2,7 @@
 import asyncio
 import math
 import re
+from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -13,7 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_db
 from app.features.contents.schema import ContentOnPlace
 from app.features.places.matching import distance_m, name_variants, title_similarity
-from app.features.places.service import _clean_text, _clean_url, _contents_by_place
+from app.features.places.service import (
+    _clean_text,
+    _clean_url,
+    _contents_by_place,
+    _related_tourism_places,
+)
+from app.features.places.schema import RelatedTourismPlace
 from app.integrations.call_log import save_calls
 from app.integrations.tour_api import TourApiClient, TourApiError, intro_details
 from app.models import Place, Region
@@ -59,6 +66,7 @@ class TourismDetail(BaseModel):
     pet_allowed: str | None = None
     images: list[str] = Field(default_factory=list)
     contents: list[ContentOnPlace] = Field(default_factory=list)
+    related_places: list[RelatedTourismPlace] = Field(default_factory=list)
 
 
 def normalize(value):
@@ -189,6 +197,20 @@ async def tourism_detail(db, content_id):
             use_time, rest_date, parking, pet_allowed = intro_details(
                 intro, content_type_id
             )
+            # 장소 상세 화면 하단의 연관 관광지. 상세 이동이 가능한 TourAPI ID로 최대 6개를 해석한다.
+            try:
+                related_places = await _related_tourism_places(
+                    api,
+                    common,
+                    SimpleNamespace(
+                        name=common.get("title") or "",
+                        region_bjd_cd="",
+                    ),
+                    limit=6,
+                )
+            except TourApiError:
+                # 연관 관광지는 부가 정보이므로 해당 API 장애가 장소 상세 전체를 막지 않는다.
+                related_places = []
 
         # 연관 관광지 상세에서도 이 장소에서 촬영된 작품을 함께 제공한다.
         lat_expr = func.coalesce(Place.latitude, func.ST_Y(cast(Place.geom, Geometry)))
@@ -216,8 +238,8 @@ async def tourism_detail(db, content_id):
         seen_content_ids = set()
         for place_id in matched_ids:
             for content in by_place.get(place_id, []):
-                if content.content_id not in seen_content_ids:
-                    seen_content_ids.add(content.content_id)
+                if content.product_id not in seen_content_ids:
+                    seen_content_ids.add(content.product_id)
                     contents.append(content)
         return TourismDetail(
             content_id=content_id, name=common.get("title") or "",
@@ -228,6 +250,7 @@ async def tourism_detail(db, content_id):
             parking=_clean_text(parking), pet_allowed=_clean_text(pet_allowed),
             images=list(dict.fromkeys(img["originimgurl"] for img in images if img.get("originimgurl"))),
             contents=contents,
+            related_places=related_places,
         )
     finally:
         await save_calls(db, api.calls)

@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 from app.features.contents.category import category_label
+from app.features.contents.schema import ContentOnPlace
 from app.features.places.service import _clean_text, _clean_url, _related_tourism_places
-from app.features.places.schema import TourDetail
+from app.features.places.schema import RelatedTourismPlace, TourDetail
 from app.features.places.tourism import matches, list_tourism, tourism_detail
 from app.integrations.tour_api import TourApiClient, intro_details
 
@@ -165,6 +166,57 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.pet_allowed, "불가")
         api.detail_common.assert_awaited_once_with("123")
 
+    async def test_filming_location_detail_includes_linked_contents(self):
+        db = AsyncMock()
+        candidate = SimpleNamespace(
+            place_id=7,
+            name="공원",
+            address=None,
+            lat=37.5,
+            lng=127.0,
+        )
+        db.execute.return_value = SimpleNamespace(all=lambda: [candidate])
+        api = AsyncMock()
+        api.__aenter__.return_value = api
+        api.calls = []
+        api.detail_common.return_value = dict(
+            title="공원",
+            mapy="37.5",
+            mapx="127.0",
+            contenttypeid="12",
+        )
+        api.detail_intro.return_value = None
+        api.detail_images.return_value = []
+        linked = ContentOnPlace(
+            product_id=42,
+            title="작품",
+            category="MOVIE",
+            detail_path="/contents/42",
+        )
+
+        with (
+            patch("app.features.places.tourism.TourApiClient", return_value=api),
+            patch(
+                "app.features.places.tourism._contents_by_place",
+                new=AsyncMock(return_value={7: [linked]}),
+            ),
+            patch(
+                "app.features.places.tourism._related_tourism_places",
+                new=AsyncMock(return_value=[RelatedTourismPlace(
+                    related_id="related-1",
+                    content_id="456",
+                    name="연관 관광지",
+                    detail_path="/tourism-places/456",
+                )]),
+            ),
+        ):
+            result = await tourism_detail(db, "123")
+
+        self.assertEqual([content.product_id for content in result.contents], [42])
+        self.assertEqual(result.contents[0].detail_path, "/contents/42")
+        self.assertEqual(result.related_places[0].content_id, "456")
+        self.assertEqual(result.related_places[0].detail_path, "/tourism-places/456")
+
     def test_intro_details_supports_cultural_facilities(self):
         self.assertEqual(
             intro_details(
@@ -196,7 +248,7 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
             [{"contentid": str(100 + i), "title": f"연관 장소 {i}"}]
             for i in range(1, 8)
         ]
-        common = {"title": "현재 공원", "lDongRegnCd": "11", "lDongSignguCd": "11110"}
+        common = {"title": "현재 공원", "lDongRegnCd": "11", "lDongSignguCd": "110"}
         row = SimpleNamespace(name="현재 공원", region_bjd_cd="1111000000")
 
         result = await _related_tourism_places(api, common, row)
@@ -205,6 +257,7 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0].content_id, "101")
         self.assertEqual(result[0].detail_path, "/tourism-places/101")
         self.assertEqual(result[0].sido_name, "서울특별시")
+        api.related_spots.assert_awaited_once_with("11", "11110", rows=1000)
 
 
 if __name__ == "__main__":

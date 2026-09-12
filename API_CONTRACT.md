@@ -371,9 +371,32 @@
   "rating": 8.5,                       // ?
   "popularity": 10.5,                  // ?
   "runtime": 131,                      // ? 분 단위. 영화 응답에만 포함
-  "place_count": 28
+  "place_count": 28,
+  "filming_location_count": 2,
+  "filming_locations": [
+    {
+      "place_id": 101,
+      "tour_content_id": "126508",
+      "name": "촬영지 이름",
+      "sido_name": "서울특별시",
+      "sigungu_name": "종로구",
+      "detail_path": "/places/101"
+    }
+  ],
+  "related_products": [
+    {
+      "product_id": 499,
+      "title": "연관 작품",
+      "category": "MOVIE",
+      "poster_url": "https://image.tmdb.org/t/p/w185/example.jpg",
+      "detail_path": "/contents/499"
+    }
+  ]
 }
 ```
+- `filming_locations`는 TourAPI 관광지와 매칭되어 `tour_content_id`가 확인된 촬영지만 최대 20개 반환한다.
+- `related_products`는 공통 장르가 있는 작품을 별점 내림차순으로 최대 10개 반환한다. 동점이면 장르 유사도와 인기도 순으로 정렬한다.
+- 화면에서는 각 항목의 `detail_path`를 사용해 장소 또는 작품 상세로 이동한다.
 - 없는 `product_id`면 `404`. `tmdb_id`는 DB와 응답에서 제거했다.
 - `category`는 `products.category`의 `MOVIE` 또는 `DRAMA`를 그대로 반환한다.
 - 영화: 위 공통 필드와 `movie_details.runtime`을 반환한다.
@@ -748,6 +771,14 @@ uvicorn app.main:app --reload
   "address": "서울특별시 종로구 ...",
   "address_detail": null,
   "images": ["https://example.com/original.jpg"]
+  ,"related_places": [{
+    "related_id": "related-1",
+    "content_id": "456",
+    "name": "연관 관광지",
+    "sido_name": "서울특별시",
+    "sigungu_name": "종로구",
+    "detail_path": "/tourism-places/456"
+  }]
 }
 ```
 

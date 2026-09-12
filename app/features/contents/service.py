@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import Float, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.features.contents.schema import (
     ContentCandidate,
@@ -18,8 +18,14 @@ from app.features.contents.schema import (
     ProductDetail,
     MovieProductDetail,
     DramaProductDetail,
+    FilmingLocationSummary,
+    RelatedProductSummary,
 )
-from app.models import Place, Product
+from app.models import Place, Product, Region
+
+
+DETAIL_FILMING_LOCATION_LIMIT = 20
+RELATED_PRODUCT_LIMIT = 10
 
 
 def _place_count_sq():
@@ -118,12 +124,6 @@ async def resolve_contents(db: AsyncSession, query: str, limit: int = 10) -> lis
 
 
 async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None:
-<<<<<<< HEAD
-    product = await db.scalar(select(Product).where(Product.product_id == product_id))
-    if product is None:
-        return None
-    return ProductDetail(
-=======
     row = (
         await db.execute(
             select(Product, _place_count_sq().label("pc"))
@@ -134,8 +134,12 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
     if row is None:
         return None
     product, place_count = row
+
+    filming_locations, filming_location_count = await _filming_locations(
+        db, product.title, DETAIL_FILMING_LOCATION_LIMIT
+    )
+    related_products = await _related_products(db, product, RELATED_PRODUCT_LIMIT)
     common = dict(
->>>>>>> 8b0349cfd739acac22f5dd01c9b563fed3f55190
         product_id=product.product_id,
         title=product.title,
         overview=product.overview,
@@ -145,11 +149,10 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
         genres=product.genres,
         rating=float(product.rating) if product.rating is not None else None,
         popularity=float(product.popularity) if product.popularity is not None else None,
-<<<<<<< HEAD
-        lead_actors=product.lead_actors,
-=======
         place_count=place_count,
->>>>>>> 8b0349cfd739acac22f5dd01c9b563fed3f55190
+        filming_location_count=filming_location_count,
+        filming_locations=filming_locations,
+        related_products=related_products,
     )
     if product.category == "MOVIE":
         movie = product.movie_detail
@@ -165,3 +168,88 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
             lead_actors=drama.cast if drama else None,
         )
     raise ValueError(f"Invalid product category: {product.category}")
+
+
+def _genre_set(raw: str | None) -> set[str]:
+    """CSV의 `|` 구분 장르를 비교 가능한 집합으로 바꾼다."""
+    return {genre.strip().casefold() for genre in (raw or "").split("|") if genre.strip()}
+
+
+async def _related_products(
+    db: AsyncSession, product: Product, limit: int
+) -> list[RelatedProductSummary]:
+    """공통 장르가 있는 작품을 별점 내림차순으로 반환한다."""
+    source_genres = _genre_set(product.genres)
+    if not source_genres:
+        return []
+
+    candidates = (
+        await db.scalars(
+            select(Product)
+            .where(
+                Product.product_id != product.product_id,
+                Product.genres.is_not(None),
+            )
+        )
+    ).all()
+
+    ranked: list[tuple[float, float, float, int, Product]] = []
+    for candidate in candidates:
+        candidate_genres = _genre_set(candidate.genres)
+        overlap = source_genres & candidate_genres
+        if not overlap:
+            continue
+        similarity = len(overlap) / len(source_genres | candidate_genres)
+        popularity = float(candidate.popularity or 0)
+        rating = float(candidate.rating or 0)
+        ranked.append((rating, similarity, popularity, candidate.product_id, candidate))
+
+    ranked.sort(key=lambda item: item[:4], reverse=True)
+    return [
+        RelatedProductSummary(
+            product_id=candidate.product_id,
+            title=candidate.title,
+            category=candidate.category,
+            poster_url=candidate.poster_url,
+            detail_path=f"/contents/{candidate.product_id}",
+        )
+        for *_, candidate in ranked[:limit]
+    ]
+
+
+async def _filming_locations(
+    db: AsyncSession, title: str, limit: int
+) -> tuple[list[FilmingLocationSummary], int]:
+    """TourAPI content ID가 확인된 촬영지만 상세 화면에 노출한다."""
+    parent = aliased(Region)
+    where = (Place.title == title, Place.tour_content_id.is_not(None))
+    total = await db.scalar(select(func.count()).select_from(Place).where(*where))
+    rows = (
+        await db.execute(
+            select(
+                Place.place_id,
+                Place.tour_content_id,
+                Place.name,
+                Region.name.label("region_name"),
+                parent.name.label("parent_name"),
+            )
+            .select_from(Place)
+            .outerjoin(Region, Region.region_id == Place.region_id)
+            .outerjoin(parent, parent.region_id == Region.parent_id)
+            .where(*where)
+            .order_by(Place.name, Place.place_id)
+            .limit(limit)
+        )
+    ).all()
+
+    return [
+        FilmingLocationSummary(
+            place_id=row.place_id,
+            tour_content_id=row.tour_content_id,
+            name=row.name,
+            sido_name=row.parent_name if row.parent_name else row.region_name,
+            sigungu_name=row.region_name if row.parent_name else None,
+            detail_path=f"/places/{row.place_id}",
+        )
+        for row in rows
+    ], (total or 0)

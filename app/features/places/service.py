@@ -213,10 +213,16 @@ async def _related_tourism_places(
     bjd_cd = str(row.region_bjd_cd or "")
     area_cd = str(common.get("lDongRegnCd") or bjd_cd[:2])
     signgu_cd = str(common.get("lDongSignguCd") or bjd_cd[:5])
+    # KorService2는 시도(2자리)와 시군구(3자리)를 분리해서 주지만,
+    # 연관 관광지 API는 둘을 합친 5자리 법정동 코드를 요구한다.
+    if area_cd and signgu_cd and len(signgu_cd) <= 3:
+        signgu_cd = f"{area_cd}{signgu_cd}"
     if not area_cd or not signgu_cd:
         return []
 
-    rows = await api.related_spots(area_cd, signgu_cd, rows=100)
+    # 한 지역에 관계 행이 100건을 넘는 경우가 흔하다. 첫 페이지만 보면 현재 장소가
+    # 뒤쪽에 있어도 "연관 관광지 없음"으로 오판하므로 API 허용 범위 내에서 넉넉히 조회한다.
+    rows = await api.related_spots(area_cd, signgu_cd, rows=1000)
     title = str(common.get("title") or row.name or "")
     direct = [
         item for item in rows

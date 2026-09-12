@@ -57,6 +57,27 @@ class ContentOnPlace(BaseModel):
     detail_path: str
 
 
+class FilmingLocationSummary(BaseModel):
+    """TourAPI 관광지와 매칭된 작품 촬영지."""
+
+    place_id: int
+    tour_content_id: str
+    name: str
+    sido_name: str | None = None
+    sigungu_name: str | None = None
+    detail_path: str
+
+
+class RelatedProductSummary(BaseModel):
+    """상세 화면에 노출할 장르 유사 작품."""
+
+    product_id: int
+    title: str
+    category: ProductCategory
+    poster_url: str | None = None
+    detail_path: str
+
+
 class ProductCommonDetail(BaseModel):
     """products의 공통 정보. 전용 필드는 카테고리별 응답에만 포함한다."""
 
@@ -68,10 +89,10 @@ class ProductCommonDetail(BaseModel):
     genres: str | None = None
     rating: float | None = None
     popularity: float | None = None
-<<<<<<< HEAD
-    lead_actors: str | None = None
-=======
     place_count: int
+    filming_location_count: int = 0
+    filming_locations: list[FilmingLocationSummary] = Field(default_factory=list)
+    related_products: list[RelatedProductSummary] = Field(default_factory=list)
 
 
 class MovieProductDetail(ProductCommonDetail):
@@ -89,4 +110,3 @@ class DramaProductDetail(ProductCommonDetail):
 
 
 ProductDetail = Annotated[MovieProductDetail | DramaProductDetail, Field(discriminator="category")]
->>>>>>> 8b0349cfd739acac22f5dd01c9b563fed3f55190
