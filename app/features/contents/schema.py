@@ -5,7 +5,10 @@
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Annotated, Literal
+from pydantic import BaseModel, Field
+
+ProductCategory = Literal["MOVIE", "DRAMA"]
 
 
 class ContentSummary(BaseModel):
@@ -14,7 +17,7 @@ class ContentSummary(BaseModel):
     product_id: int
     title: str
     first_air_date: str | None = None
-    category: str
+    category: ProductCategory
     product_type: str | None = None
     genres: str | None = None
     poster_url: str | None = None  # 296편(18%)이 null
@@ -31,7 +34,7 @@ class ContentCandidate(BaseModel):
     product_id: int
     title: str
     first_air_date: str | None = None
-    category: str
+    category: ProductCategory
     poster_url: str | None = None
     score: float  # 0.0~1.0 관련도
 
@@ -49,24 +52,41 @@ class ContentOnPlace(BaseModel):
 
     product_id: int
     title: str
-    category: str
+    category: ProductCategory
     poster_url: str | None = None
     detail_path: str
 
 
-class ProductDetail(BaseModel):
-    """현재 products.csv 기반 작품의 전체 상세 정보."""
+class ProductCommonDetail(BaseModel):
+    """products의 공통 정보. 전용 필드는 카테고리별 응답에만 포함한다."""
 
     product_id: int
     title: str
     overview: str | None = None
     first_air_date: str | None = None
-    category: str
-    product_type: str | None = None
     poster_url: str | None = None
     genres: str | None = None
-    networks: str | None = None
-    episode_count: int | None = None
     rating: float | None = None
     popularity: float | None = None
+<<<<<<< HEAD
     lead_actors: str | None = None
+=======
+    place_count: int
+
+
+class MovieProductDetail(ProductCommonDetail):
+    category: Literal["MOVIE"] = "MOVIE"
+    runtime: int | None = None
+
+
+class DramaProductDetail(ProductCommonDetail):
+    category: Literal["DRAMA"] = "DRAMA"
+    is_overview_translated: bool | None = None
+    product_type: str | None = None
+    networks: str | None = None
+    episode_count: int | None = None
+    lead_actors: str | None = None
+
+
+ProductDetail = Annotated[MovieProductDetail | DramaProductDetail, Field(discriminator="category")]
+>>>>>>> 8b0349cfd739acac22f5dd01c9b563fed3f55190

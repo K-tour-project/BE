@@ -27,7 +27,6 @@ from sqlalchemy import cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.features.contents.category import category_label
 from app.features.contents.schema import ContentOnPlace
 from app.features.places.matching import RETRY_AFTER_DAYS, match_place, title_similarity
 from app.features.places.schema import (
@@ -79,7 +78,7 @@ def _place_select():
 async def _contents_by_place(
     db: AsyncSession, place_ids: list[int], content_id: int | None = None
 ) -> dict[int, list[ContentOnPlace]]:
-    """같은 장소명의 모든 places.title을 products와 연결한다."""
+    """같은 장소명의 작품을 연결하고 products.category를 그대로 반환한다."""
     if not place_ids:
         return {}
     anchors = (await db.execute(select(Place.place_id, Place.name).where(Place.place_id.in_(place_ids)))).all()
@@ -89,7 +88,7 @@ async def _contents_by_place(
             Place.name,
             Product.product_id,
             Product.title,
-            Product.product_type,
+            Product.category,
             Product.poster_url,
         )
         .join(Product, Product.title == Place.title)
@@ -105,7 +104,7 @@ async def _contents_by_place(
             ContentOnPlace(
                 product_id=r.product_id,
                 title=r.title,
-                category=category_label(r.product_type),
+                category=r.category,
                 poster_url=r.poster_url,
                 detail_path=f"/contents/{r.product_id}",
             )

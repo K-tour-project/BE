@@ -52,7 +52,7 @@ async def resolve_content(
 
 @router.get("/{product_id}", response_model=ProductDetail)
 async def get_content(product_id: int, db: AsyncSession = Depends(get_db)):
-    """products 테이블 기반 작품 상세. 출처·적재 관리 컬럼은 노출하지 않는다."""
+    """products.category에 따라 영화 또는 드라마 전용 상세를 반환한다."""
     detail = await service.get_product(db, product_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="해당 작품을 찾을 수 없습니다.")

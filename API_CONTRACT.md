@@ -278,13 +278,14 @@
 {
   "items": [
     {
-      "content_id": 139,
-      "title_ko": "기생충",
-      "production_year": 2019,
-      "content_type": "movie",              // movie | drama | show
-      "genre_tags": ["코미디", "스릴러", "드라마"],   // ? 없을 수 있음(18%)
+      "product_id": 139,
+      "title": "기생충",
+      "first_air_date": "2019-05-30",
+      "category": "MOVIE",                 // MOVIE | DRAMA, DB 값 그대로
+      "product_type": null,                // 드라마 상세의 작품유형
+      "genres": "코미디|스릴러|드라마",       // ?
       "poster_url": "https://image.tmdb.org/t/p/w185/jjHccoFjbqlfr4VGLVLT7yek0Xn.jpg",  // ? null 가능(18%)
-      "vote_average": 8.5,                  // ? 0.0~10.0
+      "rating": 8.5,                        // ? 0.0~10.0
       "place_count": 28                     // 이 작품의 촬영지 수
     }
   ],
@@ -296,7 +297,7 @@
 > 정렬은 백엔드가 관련도순으로 처리하지만, 화면에서도 **연도·포스터를 함께 보여줘 사용자가 구분**하게 해주세요.
 
 ### `POST /contents/resolve` — 작품명 → 후보 (**AI 전용**)
-조시현 님 챗봇이 자연어에서 뽑은 제목 문자열을 `content_id`로 바꾸는 용도.
+조시현 님 챗봇이 자연어에서 뽑은 제목 문자열을 `product_id`로 바꾸는 용도.
 
 **요청**
 ```jsonc
@@ -307,9 +308,9 @@
 ```jsonc
 {
   "candidates": [
-    { "content_id": 1115, "title_ko": "만추", "production_year": 1981, "content_type": "movie",
+    { "product_id": 1115, "title": "만추", "first_air_date": "1981-11-13", "category": "MOVIE",
       "poster_url": "https://image.tmdb.org/t/p/w185/...", "score": 1.0 },
-    { "content_id": 499,  "title_ko": "만추", "production_year": 1966, "content_type": "movie",
+    { "product_id": 499, "title": "만추", "first_air_date": "1966-11-25", "category": "MOVIE",
       "poster_url": "https://image.tmdb.org/t/p/w185/...", "score": 1.0 }
   ]
 }
@@ -356,25 +357,48 @@
 
 ## 4. 작품 · 촬영지 (5단계)
 
-### `GET /contents/{content_id}` — 작품 상세
+### `GET /contents/{product_id}` — 작품 상세
 **응답 `200`**
 ```jsonc
 {
-  "content_id": 139,
-  "title_ko": "기생충",
-  "original_title": "기생충",          // ?
-  "production_year": 2019,             // ?
-  "content_type": "movie",
-  "genre_tags": ["코미디", "스릴러", "드라마"],  // ?
+  "product_id": 139,
+  "title": "기생충",
+  "first_air_date": "2019-05-30",       // ? 영화도 이 필드가 개봉일
+  "category": "MOVIE",
+  "genres": "코미디|스릴러|드라마",      // ?
   "overview": "전원백수로 살 길 막막하지만 사이는 좋은 기택네 가족...",  // ?
   "poster_url": "https://image.tmdb.org/t/p/w185/jjHcc...jpg",       // ?
-  "vote_average": 8.5,                 // ?
-  "runtime": 131,                      // ? 분 단위. 드라마는 null
-  "tmdb_id": 496243,                   // ?
+  "rating": 8.5,                       // ?
+  "popularity": 10.5,                  // ?
+  "runtime": 131,                      // ? 분 단위. 영화 응답에만 포함
   "place_count": 28
 }
 ```
-- 없는 `content_id`면 `404`.
+- 없는 `product_id`면 `404`. `tmdb_id`는 DB와 응답에서 제거했다.
+- `category`는 `products.category`의 `MOVIE` 또는 `DRAMA`를 그대로 반환한다.
+- 영화: 위 공통 필드와 `movie_details.runtime`을 반환한다.
+- 드라마: 공통 필드와 다음 전용 필드를 반환하며 `runtime`은 포함하지 않는다.
+
+| 드라마 응답 필드 | drama_details 컬럼 | 타입 |
+|---|---|---|
+| is_overview_translated | overview_translated | boolean 또는 null |
+| product_type | content_type | string 또는 null |
+| networks | networks | string 또는 null |
+| episode_count | episode_count | integer 또는 null |
+| lead_actors | cast | `배우1\|배우2` 문자열 또는 null |
+
+장소 상세 및 지도 응답의 `contents` 항목은 다음 구조다. 클릭 시 `detail_path`로 요청한다.
+ID는 `products.product_id`이며 두 상세 테이블의 PK/FK도 같은 값이다.
+
+```json
+{
+  "product_id": 139,
+  "title": "기생충",
+  "category": "MOVIE",
+  "poster_url": "https://example.com/poster.jpg",
+  "detail_path": "/contents/139"
+}
+```
 
 ### `GET /contents/{content_id}/places` — 이 작품의 촬영지 목록 ★
 앱 화면 3(작품 상세 → 촬영지 지도)의 핵심 API.
@@ -450,8 +474,8 @@
       "address": "강원도 강릉시 운정동 431",
       "region": {"region_id": 18, "name": "강릉시", "full_name": "강원도 강릉시"},
       "contents": [                       // ★ 이 장소에서 촬영된 작품들 (지도 포스터 마커용)
-        { "content_id": 559, "title_ko": "관상", "production_year": 2013,
-          "poster_url": "https://image.tmdb.org/t/p/w185/...", "scene_description": null }
+        { "product_id": 559, "title": "관상", "category": "MOVIE",
+          "poster_url": "https://image.tmdb.org/t/p/w185/...", "detail_path": "/contents/559" }
         // 강릉선교장에는 실제로 5개 작품이 붙는다(관상·식객·인사동 스캔들 등)
       ]
     }
@@ -491,8 +515,8 @@
   "location": {"lat": 35.8144357, "lng": 127.0758878},
   "address": "전라북도 전주시 완산구 상림동 538",
   "region": {"region_id": 214, "name": "전주시", "full_name": "전라북도 전주시"},
-  "contents": [ { "content_id": 139, "title_ko": "기생충", "poster_url": "https://...",
-                  "scene_description": "박사장집, 지하밀실계단과 통로" } ],
+  "contents": [ { "product_id": 139, "title": "기생충", "poster_url": "https://...",
+                  "category": "MOVIE", "detail_path": "/contents/139" } ],
 
   "detail": {                       // ★ TourAPI 실시간. null일 수 있음(아래 주의)
     "tour_content_id": "126508",
