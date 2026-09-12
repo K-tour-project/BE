@@ -11,19 +11,6 @@ from app.features.products.schema import ContentOnPlace
 from app.shared.schema import Location, RegionRef
 
 
-class PlaceInContent(BaseModel):
-    """작품의 촬영지 목록 항목. `GET /contents/{id}/places`"""
-
-    place_id: int
-    name: str
-    location: Location
-    address: str | None = None  # 지번(기본)
-    road_address: str | None = None  # 15%가 null
-    region: RegionRef | None = None
-    scene_description: str | None = None  # 75%가 null
-    episode: str | None = None  # 드라마 촬영회차. 영화는 항상 null
-
-
 class PlaceOnMap(BaseModel):
     """지역 내 촬영지 항목. `GET /regions/{id}/places`, `GET /places?near=`
 

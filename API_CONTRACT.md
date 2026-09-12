@@ -36,7 +36,6 @@
 | 3 | **작품 검색 → 작품 목록 출력** | `GET /contents/search?q=` | 윤영 |
 | 4 | **지역 검색 → 지도 + 그 지역의 모든 포스터** | `GET /regions/{region_id}/places` | 윤영 |
 | 4b | 지도에서 **영화 하나 선택** → 그 영화 촬영지만 | `GET /regions/{region_id}/places?content_id=` | 윤영 |
-| 4c | (작품 목록에서 들어온 경우) 그 작품의 전국 촬영지 | `GET /contents/{content_id}/places` | 윤영 |
 | 5 | **결과에서 가고 싶은 장소 여러 개 선택** | *API 불필요* — 앱이 `place_id` 목록을 들고 있으면 됨 | 윤영 |
 | 6 | **최적 동선 짜기** | `POST /courses/recommend` (`place_ids` 전달) | 윤영/조시현 |
 | 6b | 각 장소의 간단한 정보 표시 | `GET /places/{place_id}` | 윤영 |
@@ -423,46 +422,10 @@ ID는 `products.product_id`이며 두 상세 테이블의 PK/FK도 같은 값이
 }
 ```
 
-### `GET /contents/{content_id}/places` — 이 작품의 촬영지 목록 ★
-앱 화면 3(작품 상세 → 촬영지 지도)의 핵심 API.
-
-**응답 `200`**
-```jsonc
-{
-  "items": [
-    {
-      "place_id": 48,
-      "name": "전주영화종합촬영소",
-      "location": {"lat": 35.8144357, "lng": 127.0758878},
-      "address": "전라북도 전주시 완산구 상림동 538",              // ? 지번(기본)
-      "road_address": "전라북도 전주시 완산구 원상림길 125-14",     // ? 15% 없음
-      "region": {"region_id": 214, "name": "전주시", "full_name": "전라북도 전주시"},  // ?
-      "scene_description": "박사장집, 박사장집 지하밀실계단과 통로, 박사장네집과 가든파티 촬영장소",  // ? 75% 없음
-      "episode": null                   // ? 드라마 촬영회차. 영화는 항상 null
-    },
-    {
-      "place_id": 176,
-      "name": "서울종로경찰서 112상황실",
-      "location": {"lat": 37.5756879, "lng": 126.984804},
-      "address": "서울특별시 종로구 경운동 90-18",
-      "road_address": "서울특별시 종로구 율곡로 46",
-      "region": {"region_id": 163, "name": "종로구", "full_name": "서울특별시 종로구"},
-      "scene_description": "교통안전계",
-      "episode": null
-    }
-  ],
-  "total": 28
-}
-```
-- **`location`은 항상 있습니다** (좌표 채움률 100%). 지도 마커를 안전하게 찍을 수 있습니다.
-- `scene_description`은 **4곳 중 3곳이 비어 있습니다.** 있을 때만 노출하세요.
-
----
-
 ## 5. 지역 · 지도 (5단계)
 
 ### `GET /regions/{region_id}/places` — 지역 내 촬영지
-**응답**: `GET /contents/{id}/places`와 **같은 `items` 구조** + 각 항목에 `contents` 배열이 추가됩니다.
+**응답**: 지역 내 촬영지 `items`와 각 장소에 연결된 `contents` 배열을 반환합니다.
 
 **요청 파라미터**
 

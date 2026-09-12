@@ -15,8 +15,6 @@ from app.features.products.schema import (
     ContentSummary,
     ProductDetail,
 )
-from app.features.places.schema import PlaceInContent
-from app.features.places.service import places_of_content
 from app.shared.schema import Page
 
 router = APIRouter(prefix="/contents", tags=["contents"])
@@ -57,20 +55,3 @@ async def get_content(product_id: int, db: AsyncSession = Depends(get_db)):
     if detail is None:
         raise HTTPException(status_code=404, detail="해당 작품을 찾을 수 없습니다.")
     return detail
-
-
-@router.get("/{product_id}/places", response_model=Page[PlaceInContent])
-async def get_content_places(
-    product_id: int,
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-):
-    """이 작품의 촬영지 목록. 앱 화면 3(작품 상세 → 지도)의 핵심.
-
-    `location`은 항상 있고(좌표 100%), `scene_description`은 75%가 비어 있다.
-    """
-    if await service.get_product(db, product_id) is None:
-        raise HTTPException(status_code=404, detail="해당 작품을 찾을 수 없습니다.")
-    items, total = await places_of_content(db, product_id, limit, offset)
-    return Page[PlaceInContent](items=items, total=total)

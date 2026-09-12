@@ -31,7 +31,6 @@ from app.features.products.schema import ContentOnPlace
 from app.features.places.matching import RETRY_AFTER_DAYS, match_place, title_similarity
 from app.features.places.schema import (
     PlaceDetail,
-    PlaceInContent,
     PlaceOnMap,
     RelatedTourismPlace,
     TourDetail,
@@ -113,32 +112,6 @@ async def _contents_by_place(
     for anchor in anchors:
         out[anchor.place_id] = products_by_name.get(anchor.name, [])
     return out
-
-
-async def places_of_content(
-    db: AsyncSession, content_id: int, limit: int, offset: int
-) -> tuple[list[PlaceInContent], int]:
-    """products 작품의 촬영지 목록 (`places.title = products.title`)."""
-    title = await db.scalar(select(Product.title).where(Product.product_id == content_id))
-    if title is None:
-        return [], 0
-    base = _place_select().where(Place.title == title)
-    total = await db.scalar(select(func.count()).select_from(Place).where(Place.title == title))
-    rows = (await db.execute(base.order_by(Place.name).limit(limit).offset(offset))).all()
-
-    return [
-        PlaceInContent(
-            place_id=r.place_id,
-            name=r.name,
-            location=Location(lat=r.lat, lng=r.lng),
-            address=r.address,
-            road_address=r.road_address,
-            region=region_ref(r.region_id, r.region_name, r.parent_name),
-            scene_description=None,
-            episode=None,
-        )
-        for r in rows
-    ], (total or 0)
 
 
 def _shoot_count_sq():

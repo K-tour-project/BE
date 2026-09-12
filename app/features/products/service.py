@@ -3,8 +3,6 @@
 계약서(API_CONTRACT.md §3~§4)의 응답을 만들기 위한 DB 질의.
 라우터는 얇게 두고 여기서 데이터를 완성해 돌려준다.
 
-작품의 '촬영지 목록'은 장소 도메인이라 여기가 아니라
-[`app/features/places/service.py`](../places/service.py)의 `places_of_content`에 있다.
 """
 from __future__ import annotations
 
