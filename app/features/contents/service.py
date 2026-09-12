@@ -115,19 +115,13 @@ async def resolve_contents(db: AsyncSession, query: str, limit: int = 10) -> lis
 
 
 async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None:
-    row = (
-        await db.execute(
-            select(Product, _place_count_sq().label("pc")).where(Product.product_id == product_id)
-        )
-    ).first()
-    if row is None:
+    product = await db.scalar(select(Product).where(Product.product_id == product_id))
+    if product is None:
         return None
-    product, place_count = row
     return ProductDetail(
         product_id=product.product_id,
         title=product.title,
         overview=product.overview,
-        is_overview_translated=product.is_overview_translated,
         first_air_date=product.first_air_date.isoformat() if product.first_air_date else None,
         category=category_label(product.product_type),
         product_type=product.product_type,
@@ -138,5 +132,4 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
         rating=float(product.rating) if product.rating is not None else None,
         popularity=float(product.popularity) if product.popularity is not None else None,
         lead_actors=product.lead_actors,
-        place_count=place_count,
     )

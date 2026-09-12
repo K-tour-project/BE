@@ -60,7 +60,6 @@ class ProductDetail(BaseModel):
     product_id: int
     title: str
     overview: str | None = None
-    is_overview_translated: bool | None = None
     first_air_date: str | None = None
     category: str
     product_type: str | None = None
@@ -71,4 +70,3 @@ class ProductDetail(BaseModel):
     rating: float | None = None
     popularity: float | None = None
     lead_actors: str | None = None
-    place_count: int
