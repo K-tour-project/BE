@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 
 # 영문·숫자를 각각 최소 1개. 특수문자까지 강제하진 않는다 —
 # 요구사항을 늘릴수록 사용자가 'Password1!'류로 수렴해 오히려 예측하기 쉬워진다.
@@ -85,6 +85,7 @@ class SignupRequest(_PasswordField):
 
     email: EmailStr
     nickname: str = Field(..., min_length=2, max_length=20)
+    profile_image_url: HttpUrl | None = None
 
     @field_validator("nickname")
     @classmethod
@@ -140,6 +141,7 @@ class UserOut(BaseModel):
     nickname: str
     auth_provider: str  # local | google | kakao
     email: str | None = None
+    profile_image_url: str | None = None
     email_verified: bool
     created_at: datetime
 

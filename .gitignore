@@ -35,3 +35,6 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Local database backups (may contain account data)
+/backups/

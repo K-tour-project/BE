@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 import httpx
 from fastapi import HTTPException
+from pydantic import HttpUrl, TypeAdapter, ValidationError
 
 from app.core.config import settings
 from app.models.common import AuthProvider
@@ -48,6 +49,16 @@ class SocialProfile:
     email: str | None
     email_verified: bool
     nickname: str | None
+    profile_image_url: str | None = None
+
+
+def _profile_image_url(value: object) -> str | None:
+    if not value:
+        return None
+    try:
+        return str(TypeAdapter(HttpUrl).validate_python(value))
+    except ValidationError:
+        return None
 
 
 def _invalid_token(detail: str) -> HTTPException:
@@ -105,6 +116,7 @@ async def verify_google(id_token: str) -> SocialProfile:
         email=data.get("email"),
         email_verified=email_verified,
         nickname=data.get("name") or data.get("given_name"),
+        profile_image_url=_profile_image_url(data.get("picture")),
     )
 
 
@@ -181,4 +193,5 @@ async def verify_kakao(access_token: str) -> SocialProfile:
         email=email if isinstance(email, str) else None,
         email_verified=bool(email) and account.get("is_email_verified") is True,
         nickname=profile.get("nickname"),
+        profile_image_url=_profile_image_url(profile.get("profile_image_url")),
     )

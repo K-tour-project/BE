@@ -15,7 +15,9 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.db import get_db
 from app.core.security import decode_access_token
@@ -57,7 +59,9 @@ async def get_current_user(
             headers=_UNAUTHORIZED_HEADERS,
         )
 
-    user = await db.get(User, user_id)
+    user = await db.scalar(
+        select(User).options(selectinload(User.profile)).where(User.user_id == user_id)
+    )
     if user is None:
         # 토큰은 멀쩡한데 계정이 사라진 경우(탈퇴). 토큰 수명이 1시간이라 잠깐 생길 수 있다.
         raise HTTPException(
@@ -83,7 +87,9 @@ async def get_current_user_optional(
     user_id = decode_access_token(credentials.credentials)
     if user_id is None:
         return None
-    return await db.get(User, user_id)
+    return await db.scalar(
+        select(User).options(selectinload(User.profile)).where(User.user_id == user_id)
+    )
 
 
 # 라우터에서 짧게 쓰는 별칭

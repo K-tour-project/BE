@@ -4,8 +4,10 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 from app.core.config import settings
 from app.features.auth.router import router as auth_router
-from app.features.products.router import router as products_router
+from app.features.contents.router import router as contents_router
 from app.features.health.router import router as health_router
+from app.features.home.router import router as home_router
+from app.features.mypage.router import router as mypage_router
 from app.features.places.router import router as places_router
 from app.features.regions.router import router as regions_router
 from app.features.places.tourism import router as tourism_router
@@ -17,7 +19,9 @@ if settings.FORCE_HTTPS:
 
 # 라우터(창구) 등록 — 기능 폴더를 app/features/ 에 추가한 뒤 여기 한 줄만 더하면 연결된다.
 app.include_router(health_router)
+app.include_router(home_router)
 app.include_router(auth_router)      # 3단계: 회원가입·로그인·로그아웃·소셜
+app.include_router(mypage_router)
 app.include_router(products_router)  # 5단계: 작품 검색·상세·촬영지
 app.include_router(regions_router)   # 5단계: 지역 리졸브·목록·지역 내 촬영지
 app.include_router(places_router)    # 5단계: 반경 조회 (4단계에서 상세가 추가된다)
