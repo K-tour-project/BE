@@ -8,11 +8,44 @@ from app.features.products.category import category_label
 from app.features.products.schema import ContentOnPlace
 from app.features.places.service import _clean_text, _clean_url, _related_tourism_places
 from app.features.places.schema import RelatedTourismPlace, TourDetail
-from app.features.places.tourism import matches, list_tourism, tourism_detail
+from app.features.places.tourism import (
+    list_tourism,
+    matches,
+    resolve_region_bjd_cd,
+    tourism_detail,
+)
 from app.integrations.tour_api import TourApiClient, intro_details
 
 
 class TourismTests(unittest.IsolatedAsyncioTestCase):
+    async def test_region_code_falls_back_to_point_in_region(self):
+        db = AsyncMock()
+        db.execute.return_value = SimpleNamespace(
+            scalar_one_or_none=lambda: "1111000000"
+        )
+
+        result = await resolve_region_bjd_cd(
+            db, {"mapy": "37.573", "mapx": "126.979", "addr1": "서울특별시 종로구"}
+        )
+
+        self.assertEqual(result, "1111000000")
+        self.assertEqual(db.execute.await_count, 1)
+
+    async def test_region_code_falls_back_to_address_without_coordinates(self):
+        db = AsyncMock()
+        db.execute.return_value = SimpleNamespace(all=lambda: [
+            SimpleNamespace(bjd_cd="1100000000", name="서울특별시", level="1"),
+            SimpleNamespace(bjd_cd="1111000000", name="종로구", level="2"),
+            SimpleNamespace(bjd_cd="2600000000", name="부산광역시", level="1"),
+            SimpleNamespace(bjd_cd="2611000000", name="중구", level="2"),
+        ])
+
+        result = await resolve_region_bjd_cd(
+            db, {"addr1": "서울특별시 종로구 세종대로"}
+        )
+
+        self.assertEqual(result, "1111000000")
+
     def test_content_categories_are_korean(self):
         self.assertEqual(category_label("Movie"), "영화")
         self.assertEqual(category_label("Scripted"), "드라마")
@@ -151,7 +184,7 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         api = AsyncMock()
         api.__aenter__.return_value = api
         api.calls = []
-        api.detail_common.return_value = dict(title="공원", overview="소개<br>설명", homepage='<a href="https://example.test">홈페이지</a>', addr1="서울", tel="02-123", contenttypeid="12")
+        api.detail_common.return_value = dict(title="공원", overview="소개<br>설명", homepage='<a href="https://example.test">홈페이지</a>', addr1="서울", tel="02-123", contenttypeid="12", lDongRegnCd="11", lDongSignguCd="110")
         api.detail_intro.return_value = dict(
             usetime="09:00~18:00", restdate="월요일", parking="가능", chkpet="불가"
         )
@@ -184,6 +217,8 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
             mapy="37.5",
             mapx="127.0",
             contenttypeid="12",
+            lDongRegnCd="11",
+            lDongSignguCd="110",
         )
         api.detail_intro.return_value = None
         api.detail_images.return_value = []

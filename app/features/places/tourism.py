@@ -131,6 +131,64 @@ def candidate_bounds(rows):
     )
 
 
+async def resolve_region_bjd_cd(db: AsyncSession, common: dict) -> str:
+    """TourAPI 상세에 법정동 코드가 없을 때 자체 지역 데이터로 보완한다.
+
+    좌표가 가장 신뢰할 수 있으므로 시군구 경계의 공간 포함 여부를 먼저 보고,
+    좌표가 없거나 경계에서 찾지 못한 경우에만 주소의 지역명을 사용한다.
+    """
+    point = location(common)
+    if point is not None:
+        geometry = func.ST_SetSRID(func.ST_MakePoint(point.lng, point.lat), 4326)
+        bjd_cd = (
+            await db.execute(
+                select(Region.bjd_cd)
+                .where(
+                    Region.level == "2",
+                    func.ST_Covers(Region.boundary, geometry),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if bjd_cd:
+            return str(bjd_cd)
+
+    address = normalize(common.get("addr1"))
+    if not address:
+        return ""
+
+    regions = (
+        await db.execute(
+            select(Region.bjd_cd, Region.name, Region.level).where(
+                Region.level.in_(("1", "2"))
+            )
+        )
+    ).all()
+    sido_names = {
+        str(region.bjd_cd)[:2]: normalize(region.name)
+        for region in regions
+        if region.level == "1"
+    }
+    matches_by_name = [
+        region for region in regions
+        if region.level == "2"
+        and normalize(region.name)
+        and normalize(region.name) in address
+    ]
+    if not matches_by_name:
+        return ""
+
+    # '중구'처럼 전국에 중복되는 이름은 주소에 시도명까지 들어맞는 지역을 우선한다.
+    best = max(
+        matches_by_name,
+        key=lambda region: (
+            sido_names.get(str(region.bjd_cd)[:2], "") in address,
+            len(normalize(region.name)),
+        ),
+    )
+    return str(best.bjd_cd)
+
+
 async def list_tourism(db, region_id, page, size):
     region = await db.get(Region, region_id)
     if region is None:
@@ -197,6 +255,9 @@ async def tourism_detail(db, content_id):
             use_time, rest_date, parking, pet_allowed = intro_details(
                 intro, content_type_id
             )
+            region_bjd_cd = ""
+            if not common.get("lDongRegnCd") or not common.get("lDongSignguCd"):
+                region_bjd_cd = await resolve_region_bjd_cd(db, common)
             # 장소 상세 화면 하단의 연관 관광지. 상세 이동이 가능한 TourAPI ID로 최대 6개를 해석한다.
             try:
                 related_places = await _related_tourism_places(
@@ -204,7 +265,7 @@ async def tourism_detail(db, content_id):
                     common,
                     SimpleNamespace(
                         name=common.get("title") or "",
-                        region_bjd_cd="",
+                        region_bjd_cd=region_bjd_cd,
                     ),
                     limit=6,
                 )
