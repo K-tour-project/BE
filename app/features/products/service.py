@@ -12,7 +12,7 @@ from sqlalchemy import Float, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
-from app.features.contents.schema import (
+from app.features.products.schema import (
     ContentCandidate,
     ContentSummary,
     ProductDetail,

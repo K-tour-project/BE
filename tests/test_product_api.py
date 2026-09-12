@@ -3,8 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from pydantic import TypeAdapter
-from app.features.contents.schema import ProductDetail
-from app.features.contents.service import (
+from app.features.products.schema import ProductDetail
+from app.features.products.service import (
     _filming_locations,
     _genre_set,
     _related_products,
