@@ -394,8 +394,8 @@
   ]
 }
 ```
-- `filming_locations`는 TourAPI 관광지와 매칭되어 `tour_content_id`가 확인된 촬영지만 최대 20개 반환한다.
-- `related_products`는 공통 장르가 있는 작품을 별점 내림차순으로 최대 10개 반환한다. 동점이면 장르 유사도와 인기도 순으로 정렬한다.
+- `filming_locations`는 TourAPI 관광지와 매칭되어 `tour_content_id`가 확인된 해당 작품의 촬영지를 모두 반환한다.
+- `related_products`는 공통 장르가 있는 작품을 별점 내림차순으로 최대 6개 반환한다. 동점이면 장르 유사도와 인기도 순으로 정렬한다.
 - 화면에서는 각 항목의 `detail_path`를 사용해 장소 또는 작품 상세로 이동한다.
 - 없는 `product_id`면 `404`. `tmdb_id`는 DB와 응답에서 제거했다.
 - `category`는 `products.category`의 `MOVIE` 또는 `DRAMA`를 그대로 반환한다.

@@ -24,8 +24,7 @@ from app.features.contents.schema import (
 from app.models import Place, Product, Region
 
 
-DETAIL_FILMING_LOCATION_LIMIT = 20
-RELATED_PRODUCT_LIMIT = 10
+RELATED_PRODUCT_LIMIT = 6
 
 
 def _place_count_sq():
@@ -135,9 +134,7 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
         return None
     product, place_count = row
 
-    filming_locations, filming_location_count = await _filming_locations(
-        db, product.title, DETAIL_FILMING_LOCATION_LIMIT
-    )
+    filming_locations, filming_location_count = await _filming_locations(db, product.title)
     related_products = await _related_products(db, product, RELATED_PRODUCT_LIMIT)
     common = dict(
         product_id=product.product_id,
@@ -218,7 +215,7 @@ async def _related_products(
 
 
 async def _filming_locations(
-    db: AsyncSession, title: str, limit: int
+    db: AsyncSession, title: str
 ) -> tuple[list[FilmingLocationSummary], int]:
     """TourAPI content ID가 확인된 촬영지만 상세 화면에 노출한다."""
     parent = aliased(Region)
@@ -238,7 +235,6 @@ async def _filming_locations(
             .outerjoin(parent, parent.region_id == Region.parent_id)
             .where(*where)
             .order_by(Place.name, Place.place_id)
-            .limit(limit)
         )
     ).all()
 

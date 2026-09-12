@@ -81,7 +81,7 @@ class ProductApiTests(unittest.IsolatedAsyncioTestCase):
             parent_name="서울특별시",
         )]))
 
-        items, total = await _filming_locations(db, "작품", 20)
+        items, total = await _filming_locations(db, "작품")
 
         self.assertEqual(total, 1)
         self.assertEqual(items[0].sido_name, "서울특별시")
