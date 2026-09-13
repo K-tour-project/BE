@@ -220,6 +220,34 @@ class MyPageDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(response.json()["profile_image_url"])
         self.assertEqual(await self.db.scalar(select(func.count()).select_from(UserProfile)), 0)
 
+    async def test_delete_account_requires_auth_and_removes_owned_data(self):
+        unauthenticated = await self.client.delete("/me/account")
+        self.assertEqual(unauthenticated.status_code, 401)
+
+        await self.request("PUT", f"/me/favorites/places/{self.place.place_id}")
+        await self.request("PUT", f"/me/saved-products/{self.movie.product_id}")
+        user_id = self.user.user_id
+
+        response = await self.request("DELETE", "/me/account")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"message": "회원 탈퇴가 완료되었습니다."})
+        self.assertIsNone(await self.db.get(User, user_id))
+        self.assertEqual(
+            await self.db.scalar(
+                select(func.count()).select_from(PlaceFavorite).where(PlaceFavorite.user_id == user_id)
+            ),
+            0,
+        )
+        self.assertEqual(
+            await self.db.scalar(
+                select(func.count()).select_from(ProductFavorite).where(ProductFavorite.user_id == user_id)
+            ),
+            0,
+        )
+
+        after_deletion = await self.client.get("/auth/me", headers=self.headers)
+        self.assertEqual(after_deletion.status_code, 401)
+
     async def test_signup_persists_submitted_profile(self):
         now = datetime.now(timezone.utc)
         self.db.add(EmailVerification(email="signup@example.com", code_hash="test-hash",

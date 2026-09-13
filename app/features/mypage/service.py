@@ -225,3 +225,9 @@ async def update_profile(db: AsyncSession, user: User, image_url: str | None) ->
     await db.commit()
     await db.refresh(user, attribute_names=["profile"])
     return ProfileOut.model_validate(user)
+
+
+async def delete_account(db: AsyncSession, user: User) -> None:
+    """계정과 DB에서 CASCADE로 연결된 사용자 소유 데이터를 영구 삭제한다."""
+    await db.delete(user)
+    await db.commit()

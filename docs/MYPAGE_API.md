@@ -112,6 +112,7 @@ TourAPI 본문과 이미지는 DB에 저장하지 않고 호출 메타데이터�
 | TourAPI 관광지 찜 / 취소 | `PUT` / `DELETE /me/favorites/tourism/{content_id}` |
 | 마이페이지 장소 목록에서 취소 | `DELETE /me/favorite-places/{favorite_id}` |
 | 작품 저장 / 취소 | `PUT` / `DELETE /me/saved-products/{product_id}` |
+| 회원 탈퇴 | `DELETE /me/account` |
 
 요청 본문은 없습니다. `PUT` 재시도는 중복 저장되지 않고,
 `DELETE`는 이미 취소한 항목이어도 200을 반환합니다. 다른 사용자의 기록에는 영향을 주지 않습니다.

@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Path, Query
 
 from app.deps import CurrentUser, DbSession
+from app.features.auth.schema import MessageOut
 from app.features.mypage import service
 from app.features.mypage.schema import (
     FavoritePlaceOut, MyPageOut, ProfileOut, ProfileUpdate, SavedProductOut, SaveState,
@@ -77,3 +78,10 @@ async def remove_product(product_id: PositiveId, user: CurrentUser, db: DbSessio
 async def update_profile(body: ProfileUpdate, user: CurrentUser, db: DbSession):
     """내 프로필 이미지 URL 수정. null은 기본 프로필로 초기화."""
     return await service.update_profile(db, user, str(body.profile_image_url) if body.profile_image_url else None)
+
+
+@router.delete("/account", response_model=MessageOut)
+async def delete_account(user: CurrentUser, db: DbSession):
+    """회원 탈퇴. 계정과 사용자가 소유한 데이터를 영구 삭제한다."""
+    await service.delete_account(db, user)
+    return MessageOut(message="회원 탈퇴가 완료되었습니다.")

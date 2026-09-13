@@ -4,7 +4,7 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 from app.core.config import settings
 from app.features.auth.router import router as auth_router
-from app.features.contents.router import router as contents_router
+from app.features.products.router import router as products_router
 from app.features.health.router import router as health_router
 from app.features.home.router import router as home_router
 from app.features.mypage.router import router as mypage_router

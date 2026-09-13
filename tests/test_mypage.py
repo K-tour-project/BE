@@ -33,10 +33,11 @@ class ProfileContractTests(unittest.TestCase):
 
     def test_application_registers_mypage_and_existing_detail_routes(self):
         paths = app.openapi()["paths"]
-        for path in ("/me/mypage", "/me/favorite-places", "/me/saved-products", "/me/profile",
-                     "/places/{place_id}", "/tourism-places/{content_id}", "/contents/{product_id}"):
+        for path in ("/me/mypage", "/me/favorite-places", "/me/saved-products", "/me/profile", "/me/account",
+                      "/places/{place_id}", "/tourism-places/{content_id}", "/contents/{product_id}"):
             self.assertIn(path, paths)
         self.assertIn("security", paths["/me/mypage"]["get"])
+        self.assertIn("security", paths["/me/account"]["delete"])
 
 
 class LiveFavoriteTests(unittest.IsolatedAsyncioTestCase):
