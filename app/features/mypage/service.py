@@ -15,6 +15,7 @@ from app.features.mypage.schema import (
 from app.integrations.call_log import save_calls
 from app.integrations.tour_api import TourApiClient, TourApiError
 from app.models import Place, PlaceFavorite, Product, ProductFavorite, Region, User, UserProfile
+from app.integrations import r2
 from app.shared.schema import Page
 
 
@@ -216,18 +217,55 @@ async def remove_product(db: AsyncSession, user_id: int, product_id: int) -> Sav
     return await _state(db, user_id, False)
 
 
-async def update_profile(db: AsyncSession, user: User, image_url: str | None) -> ProfileOut:
-    if image_url is None:
+async def update_profile(
+    db: AsyncSession,
+    user: User,
+    profile_image: tuple[bytes, str, str] | None,
+    *,
+    remove_image: bool = False,
+) -> ProfileOut:
+    old_key = r2.object_key_from_public_url(user.profile_image_url)
+    uploaded_key: str | None = None
+
+    if remove_image:
         await db.execute(delete(UserProfile).where(UserProfile.user_id == user.user_id))
     else:
-        await db.execute(insert(UserProfile).values(user_id=user.user_id, profile_image_url=image_url)
-                         .on_conflict_do_update(index_elements=[UserProfile.user_id], set_={"profile_image_url": image_url}))
-    await db.commit()
+        assert profile_image is not None
+        content, content_type, extension = profile_image
+        try:
+            uploaded_key, image_url = await r2.upload_profile_image(
+                user.user_id, content, content_type, extension
+            )
+        except r2.R2ConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
+        except r2.R2UploadError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from None
+        await db.execute(
+            insert(UserProfile)
+            .values(user_id=user.user_id, profile_image_url=image_url)
+            .on_conflict_do_update(
+                index_elements=[UserProfile.user_id],
+                set_={"profile_image_url": image_url},
+            )
+        )
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        if uploaded_key is not None:
+            await r2.delete_object(uploaded_key)
+        raise
+
+    if old_key is not None and old_key != uploaded_key:
+        await r2.delete_object(old_key)
     await db.refresh(user, attribute_names=["profile"])
     return ProfileOut.model_validate(user)
 
 
 async def delete_account(db: AsyncSession, user: User) -> None:
     """계정과 DB에서 CASCADE로 연결된 사용자 소유 데이터를 영구 삭제한다."""
+    profile_key = r2.object_key_from_public_url(user.profile_image_url)
     await db.delete(user)
     await db.commit()
+    if profile_key is not None:
+        await r2.delete_object(profile_key)

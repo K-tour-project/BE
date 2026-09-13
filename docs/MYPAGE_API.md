@@ -151,20 +151,24 @@ TourAPI 본문과 이미지는 DB에 저장하지 않고 호출 메타데이터�
 
 ## 프로필 사진 등록·수정
 
-회원가입 `POST /auth/signup`에 선택 필드 `profile_image_url`을 추가했습니다.
+회원가입 `POST /auth/signup`은 `multipart/form-data`로 이메일·비밀번호·닉네임과 선택 파일
+`profile_image`를 받습니다. JPEG·PNG·WebP 형식을 최대 5MB까지 허용하고 R2의
+`profiles/{user_id}.{확장자}`에 저장한 뒤 공개 URL을 `profile_image_url`로 반환합니다.
 구글·카카오는 최초 가입 시 제공자가 전달한 사진 URL을 저장합니다.
 기존 소셜 회원이 다시 로그인해도 설정 화면에서 수정한 사진을 덮어쓰지 않습니다.
 
 설정 화면에서 `PATCH /me/profile`:
 
-```json
-{ "profile_image_url": "https://images.example.com/changed.jpg" }
+```text
+Content-Type: multipart/form-data
+
+profile_image=(교체할 이미지 파일)
 ```
 
 응답은 `user_id`, `nickname`, `email`, `profile_image_url`입니다.
-`{"profile_image_url": null}`은 기본 이미지로 초기화합니다.
-빈 요청, HTTP(S)가 아닌 URL, 사용자 ID 등 추가 필드는 422입니다.
-URL만 저장하며 사진 파일 업로드나 외부 이미지 다운로드는 하지 않습니다.
+기본 이미지로 초기화할 때는 multipart 필드 `remove_image=true`를 보냅니다.
+이미지 파일과 `remove_image=true`를 동시에 보내면 400, 둘 다 없으면 422입니다.
+교체·초기화 시 이전 R2 이미지는 삭제되며, 회원 탈퇴 시에도 해당 사용자의 R2 이미지가 삭제됩니다.
 
 ## 오류
 

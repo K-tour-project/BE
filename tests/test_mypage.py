@@ -2,34 +2,38 @@
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from pydantic import ValidationError
-
 from app.features.auth.schema import SignupRequest
 from app.features.auth.social import _profile_image_url
-from app.features.mypage.schema import ProfileUpdate
+from app.integrations.r2 import identify_profile_image, object_key_from_public_url
 from app.features.mypage.service import _live_places
 from app.integrations.tour_api import TourApiError, TourApiKeyMissing
 from app.main import app
 
 
 class ProfileContractTests(unittest.TestCase):
-    def test_signup_accepts_optional_image_url(self):
-        request = SignupRequest(email="user@example.com", nickname="Tester", password="password123",
-                                profile_image_url="https://images.example.com/a.jpg")
-        self.assertEqual(str(request.profile_image_url), "https://images.example.com/a.jpg")
+    def test_signup_fields_are_valid_without_an_optional_image(self):
+        request = SignupRequest(email="user@example.com", nickname="Tester", password="password123")
+        self.assertEqual(request.nickname, "Tester")
 
-    def test_profile_update_requires_field_and_disallows_arbitrary_fields(self):
-        for body in ({}, {"profile_image_url": "javascript:alert(1)"},
-                     {"profile_image_url": "file:///etc/passwd"},
-                     {"profile_image_url": "https://example.com/a.jpg", "user_id": 5}):
-            with self.subTest(body=body), self.assertRaises(ValidationError):
-                ProfileUpdate.model_validate(body)
-        self.assertIsNone(ProfileUpdate(profile_image_url=None).profile_image_url)
+    def test_profile_image_type_is_detected_from_content(self):
+        self.assertEqual(identify_profile_image(b"\xff\xd8\xffdata"), ("image/jpeg", "jpg"))
+        self.assertEqual(identify_profile_image(b"\x89PNG\r\n\x1a\ndata"), ("image/png", "png"))
+        self.assertEqual(identify_profile_image(b"RIFFxxxxWEBPdata"), ("image/webp", "webp"))
+        with self.assertRaises(ValueError):
+            identify_profile_image(b"not-an-image")
 
     def test_social_image_validation(self):
         self.assertEqual(_profile_image_url("https://example.com/a.jpg"), "https://example.com/a.jpg")
         self.assertIsNone(_profile_image_url("javascript:alert(1)"))
         self.assertIsNone(_profile_image_url(None))
+
+    def test_only_our_r2_public_urls_are_convertible_to_object_keys(self):
+        with patch("app.integrations.r2.settings.R2_PUBLIC_BASE_URL", "https://cdn.example.com/assets"):
+            self.assertEqual(
+                object_key_from_public_url("https://cdn.example.com/assets/profiles/7.webp"),
+                "profiles/7.webp",
+            )
+            self.assertIsNone(object_key_from_public_url("https://provider.example.com/avatar.jpg"))
 
     def test_application_registers_mypage_and_existing_detail_routes(self):
         paths = app.openapi()["paths"]

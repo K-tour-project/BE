@@ -1,14 +1,13 @@
 """Authenticated My Page, saved lists, save buttons and profile settings."""
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, File, Form, HTTPException, Path, Query, UploadFile
 
 from app.deps import CurrentUser, DbSession
 from app.features.auth.schema import MessageOut
 from app.features.mypage import service
-from app.features.mypage.schema import (
-    FavoritePlaceOut, MyPageOut, ProfileOut, ProfileUpdate, SavedProductOut, SaveState,
-)
+from app.features.mypage.schema import FavoritePlaceOut, MyPageOut, ProfileOut, SavedProductOut, SaveState
+from app.integrations.r2 import MAX_PROFILE_IMAGE_BYTES, identify_profile_image
 from app.shared.schema import Page
 
 router = APIRouter(prefix="/me", tags=["mypage"])
@@ -75,9 +74,35 @@ async def remove_product(product_id: PositiveId, user: CurrentUser, db: DbSessio
 
 
 @router.patch("/profile", response_model=ProfileOut)
-async def update_profile(body: ProfileUpdate, user: CurrentUser, db: DbSession):
-    """내 프로필 이미지 URL 수정. null은 기본 프로필로 초기화."""
-    return await service.update_profile(db, user, str(body.profile_image_url) if body.profile_image_url else None)
+async def update_profile(
+    user: CurrentUser,
+    db: DbSession,
+    profile_image: Annotated[UploadFile | None, File()] = None,
+    remove_image: Annotated[bool, Form()] = False,
+):
+    """프로필 이미지 파일 교체. remove_image=true이면 기본 이미지로 초기화한다."""
+    if profile_image is not None and remove_image:
+        raise HTTPException(status_code=400, detail="이미지 교체와 초기화를 동시에 요청할 수 없습니다.")
+    if profile_image is None and not remove_image:
+        raise HTTPException(status_code=422, detail="프로필 이미지 파일 또는 remove_image=true가 필요합니다.")
+
+    image: tuple[bytes, str, str] | None = None
+    if profile_image is not None:
+        try:
+            content = await profile_image.read(MAX_PROFILE_IMAGE_BYTES + 1)
+        finally:
+            await profile_image.close()
+        if not content:
+            raise HTTPException(status_code=422, detail="프로필 이미지 파일이 비어 있습니다.")
+        if len(content) > MAX_PROFILE_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="프로필 이미지는 최대 5MB까지 업로드할 수 있습니다.")
+        try:
+            content_type, extension = identify_profile_image(content)
+        except ValueError as exc:
+            raise HTTPException(status_code=415, detail=str(exc)) from None
+        image = content, content_type, extension
+
+    return await service.update_profile(db, user, image, remove_image=remove_image)
 
 
 @router.delete("/account", response_model=MessageOut)

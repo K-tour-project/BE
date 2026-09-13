@@ -181,17 +181,23 @@
 - `429` **5회 틀리면 잠깁니다** → 코드를 새로 받아야 합니다. 안내 문구를 띄워주세요
 
 #### `POST /auth/signup`
+```text
+Content-Type: multipart/form-data
+
+email=eunseo@example.com
+password=ktour1234
+nickname=은서
+profile_image=(선택 이미지 파일)
+```
 ```jsonc
-// 요청
-{ "email": "eunseo@example.com", "password": "ktour1234", "nickname": "은서" }
 // 응답 201
 { "message": "회원가입이 완료되었습니다.", "user": { ... } }
 ```
 - **비밀번호 규칙: 8자 이상 72바이트 이하, 영문+숫자 필수.** 위반 시 `422`
   (앱에서 미리 검사해 주면 사용자 경험이 좋습니다)
 - 닉네임 2~20자
-- 선택 필드 `profile_image_url`: HTTP(S) 이미지 URL. 가입 시 저장하며, 생략 시 기본 이미지(`null`).
-  가입·로그인·토큰 갱신·`GET /auth/me`의 사용자 응답에도 이 필드가 포함됩니다.
+- 선택 파일 `profile_image`: JPEG·PNG·WebP, 최대 5MB. 서버가 R2에 저장하며, 생략 시 기본 이미지(`null`).
+  저장된 공개 URL은 가입·로그인·토큰 갱신·`GET /auth/me` 사용자 응답의 `profile_image_url`에 포함됩니다.
 - `403` 이메일 인증을 안 했거나 인증 후 30분이 지남 → 코드 재발송부터 다시
 - `409` 이미 가입된 이메일
 

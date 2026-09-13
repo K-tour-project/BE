@@ -15,11 +15,14 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, status
+from typing import Annotated
+
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 
 from app.core.config import settings
 from app.deps import CurrentUser, DbSession
 from app.features.auth import service, social
+from app.integrations.r2 import MAX_PROFILE_IMAGE_BYTES, identify_profile_image
 from app.features.auth.schema import (
     EmailCodeRequest,
     EmailCodeSent,
@@ -79,16 +82,37 @@ async def verify_email_code(body: EmailVerifyRequest, db: DbSession):
 
 
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
-async def signup(body: SignupRequest, db: DbSession):
-    """회원가입. 성공하면 계정만 생성하고 토큰은 발급하지 않는다.
+async def signup(
+    db: DbSession,
+    body: Annotated[SignupRequest, Form()],
+    profile_image: Annotated[UploadFile | None, File()] = None,
+):
+    """multipart/form-data 회원가입. 프로필 이미지는 실제 파일로 받는다.
 
     - `403` 이메일 인증을 아직 안 했거나 인증이 만료됨
     - `409` 이미 가입된 이메일
     - `422` 비밀번호 규칙(8자 이상, 영문+숫자) 미달 — FastAPI가 자동으로 낸다
+    - `413` 프로필 이미지가 5MB를 초과함
+    - `415` 프로필 이미지가 JPEG·PNG·WebP가 아님
     """
+    image: tuple[bytes, str, str] | None = None
+    if profile_image is not None:
+        try:
+            content = await profile_image.read(MAX_PROFILE_IMAGE_BYTES + 1)
+        finally:
+            await profile_image.close()
+        if not content:
+            raise HTTPException(status_code=422, detail="프로필 이미지 파일이 비어 있습니다.")
+        if len(content) > MAX_PROFILE_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="프로필 이미지는 최대 5MB까지 업로드할 수 있습니다.")
+        try:
+            content_type, extension = identify_profile_image(content)
+        except ValueError as exc:
+            raise HTTPException(status_code=415, detail=str(exc)) from None
+        image = content, content_type, extension
+
     user = await service.signup(
-        db, body.email, body.password, body.nickname,
-        profile_image_url=str(body.profile_image_url) if body.profile_image_url else None,
+        db, body.email, body.password, body.nickname, profile_image=image,
     )
     return SignupResponse(message="회원가입이 완료되었습니다.", user=user)
 

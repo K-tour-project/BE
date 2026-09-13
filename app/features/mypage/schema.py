@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.products.schema import ProductCategory
 from app.shared.schema import Page
@@ -15,13 +15,6 @@ class ProfileOut(BaseModel):
     profile_image_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class ProfileUpdate(BaseModel):
-    # A required nullable field distinguishes reset from an accidentally empty body.
-    profile_image_url: HttpUrl | None
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class SavedCounts(BaseModel):

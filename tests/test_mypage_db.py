@@ -210,13 +210,31 @@ class MyPageDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(counts, {"favorite_place_count": 0, "saved_product_count": 0})
 
     async def test_profile_update_reset_and_ownership(self):
-        response = await self.request("PATCH", "/me/profile", json={"profile_image_url": "https://images.example.com/new.png"})
-        self.assertEqual(response.json()["profile_image_url"], "https://images.example.com/new.png")
+        with patch(
+            "app.features.mypage.service.r2.upload_profile_image",
+            new_callable=AsyncMock,
+            return_value=("profiles/1.png", "https://cdn.example.com/profiles/1.png"),
+        ), patch(
+            "app.features.mypage.service.r2.object_key_from_public_url",
+            return_value=None,
+        ):
+            response = await self.request(
+                "PATCH", "/me/profile",
+                files={"profile_image": ("new.png", b"\x89PNG\r\n\x1a\ndata", "image/png")},
+            )
+        self.assertEqual(response.json()["profile_image_url"], "https://cdn.example.com/profiles/1.png")
         me = (await self.request("GET", "/auth/me")).json()
-        self.assertEqual(me["profile_image_url"], "https://images.example.com/new.png")
+        self.assertEqual(me["profile_image_url"], "https://cdn.example.com/profiles/1.png")
         other = (await self.request("GET", "/auth/me", headers=self.other_headers)).json()
         self.assertIsNone(other["profile_image_url"])
-        response = await self.request("PATCH", "/me/profile", json={"profile_image_url": None})
+        with patch(
+            "app.features.mypage.service.r2.object_key_from_public_url",
+            return_value="profiles/1.png",
+        ), patch(
+            "app.features.mypage.service.r2.delete_object", new_callable=AsyncMock
+        ) as delete_object:
+            response = await self.request("PATCH", "/me/profile", data={"remove_image": "true"})
+            delete_object.assert_awaited_once_with("profiles/1.png")
         self.assertIsNone(response.json()["profile_image_url"])
         self.assertEqual(await self.db.scalar(select(func.count()).select_from(UserProfile)), 0)
 
@@ -253,12 +271,18 @@ class MyPageDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.db.add(EmailVerification(email="signup@example.com", code_hash="test-hash",
                                      expires_at=now, verified_at=now))
         await self.db.flush()
-        response = await self.request("POST", "/auth/signup", json={
-            "email": "signup@example.com", "password": "password123", "nickname": "New user",
-            "profile_image_url": "https://images.example.com/signup.jpg",
-        })
+        with patch(
+            "app.features.auth.service.r2.upload_profile_image",
+            new_callable=AsyncMock,
+            return_value=("profiles/123.png", "https://cdn.example.com/profiles/123.png"),
+        ):
+            response = await self.request(
+                "POST", "/auth/signup",
+                data={"email": "signup@example.com", "password": "password123", "nickname": "New user"},
+                files={"profile_image": ("profile.png", b"\x89PNG\r\n\x1a\ndata", "image/png")},
+            )
         self.assertEqual(response.status_code, 201, response.text)
-        self.assertEqual(response.json()["user"]["profile_image_url"], "https://images.example.com/signup.jpg")
+        self.assertEqual(response.json()["user"]["profile_image_url"], "https://cdn.example.com/profiles/123.png")
 
     async def test_existing_social_login_preserves_custom_profile(self):
         result = await social_login(self.db, SocialProfile(
@@ -273,7 +297,7 @@ class MyPageDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.db.add(EmailVerification(email="without-image@example.com", code_hash="test-hash",
                                      expires_at=now, verified_at=now))
         await self.db.flush()
-        response = await self.request("POST", "/auth/signup", json={
+        response = await self.request("POST", "/auth/signup", data={
             "email": "without-image@example.com", "password": "password123", "nickname": "No image",
         })
         self.assertEqual(response.status_code, 201, response.text)

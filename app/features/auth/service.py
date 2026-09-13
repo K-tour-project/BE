@@ -37,6 +37,7 @@ from app.core.security import (
 from app.features.auth import mailer
 from app.features.auth.schema import TokenPair, UserOut
 from app.features.auth.social import SocialProfile
+from app.integrations import r2
 from app.models.auth import EmailVerification, RefreshToken
 from app.models.common import AuthProvider
 from app.models.user import User
@@ -290,7 +291,7 @@ async def signup(
     email: str,
     password: str,
     nickname: str,
-    profile_image_url: str | None = None,
+    profile_image: tuple[bytes, str, str] | None = None,
 ) -> UserOut:
     """③ 회원가입. ②의 통과권이 살아 있어야만 성공한다."""
     email = _normalize_email(email)
@@ -326,8 +327,6 @@ async def signup(
         password_hash=hash_password(password),
         email_verified=True,
     )
-    if profile_image_url:
-        user.profile = UserProfile(profile_image_url=profile_image_url)
     db.add(user)
     verification.consumed_at = _now()
     try:
@@ -339,7 +338,28 @@ async def signup(
             status_code=409, detail="이미 가입된 이메일입니다."
         ) from None
 
-    await db.commit()
+    uploaded_key: str | None = None
+    if profile_image is not None:
+        content, content_type, extension = profile_image
+        try:
+            uploaded_key, public_url = await r2.upload_profile_image(
+                user.user_id, content, content_type, extension
+            )
+        except r2.R2ConfigurationError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=503, detail=str(exc)) from None
+        except r2.R2UploadError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=502, detail=str(exc)) from None
+        user.profile = UserProfile(profile_image_url=public_url)
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        if uploaded_key is not None:
+            await r2.delete_object(uploaded_key)
+        raise
     await db.refresh(user)
     return UserOut.model_validate(user)
 

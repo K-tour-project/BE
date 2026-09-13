@@ -16,3 +16,9 @@ httpx
 bcrypt
 # pydantic의 EmailStr 검증에 필요 (없으면 import 시점에 에러)
 email-validator
+
+# Cloudflare R2 (S3-compatible object storage)
+boto3
+python-dotenv
+# FastAPI multipart/form-data 파일 업로드 파서
+python-multipart

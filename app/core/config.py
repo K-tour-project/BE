@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     # 코드 확인 후 이 시간 안에 회원가입을 마쳐야 한다(인증만 해두고 방치하는 것 방지).
     EMAIL_VERIFIED_VALID_MINUTES: int = 30
 
+    # Cloudflare R2 프로필 이미지 저장소
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = ""
+    # R2.dev 공개 URL 또는 버킷에 연결한 커스텀 도메인. 끝의 /는 있어도 된다.
+    R2_PUBLIC_BASE_URL: str = ""
+
     # 4단계(TourAPI) — 한국관광공사 오픈API
     # ⚠️ TOUR_API_KEY는 data.go.kr에서 발급받은 **일반 인증키(Decoding)**를 .env에만 넣는다.
     #    앱(APK)이나 git에 절대 넣지 않는다 — 노출 시 공모전 실격 사유이며 키는 2년 유효.
@@ -105,6 +113,19 @@ class Settings(BaseSettings):
     def smtp_ready(self) -> bool:
         """SMTP가 설정됐는지. False면 인증코드를 서버 로그로 출력한다(개발 모드)."""
         return bool(self.SMTP_HOST.strip())
+
+    @property
+    def r2_ready(self) -> bool:
+        return all(
+            value.strip()
+            for value in (
+                self.R2_ACCOUNT_ID,
+                self.R2_ACCESS_KEY_ID,
+                self.R2_SECRET_ACCESS_KEY,
+                self.R2_BUCKET_NAME,
+                self.R2_PUBLIC_BASE_URL,
+            )
+        )
 
     @property
     def google_client_ids(self) -> list[str]:
