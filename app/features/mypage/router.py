@@ -6,7 +6,15 @@ from fastapi import APIRouter, File, Form, HTTPException, Path, Query, UploadFil
 from app.deps import CurrentUser, DbSession
 from app.features.auth.schema import MessageOut
 from app.features.mypage import service
-from app.features.mypage.schema import FavoritePlaceOut, MyPageOut, ProfileOut, SavedProductOut, SaveState
+from app.features.mypage.schema import (
+    FavoritePlaceOut,
+    MyPageOut,
+    NicknameUpdateRequest,
+    PasswordChangeRequest,
+    ProfileOut,
+    SavedProductOut,
+    SaveState,
+)
 from app.integrations.r2 import MAX_PROFILE_IMAGE_BYTES, identify_profile_image
 from app.shared.schema import Page
 
@@ -103,6 +111,19 @@ async def update_profile(
         image = content, content_type, extension
 
     return await service.update_profile(db, user, image, remove_image=remove_image)
+
+
+@router.patch("/nickname", response_model=ProfileOut)
+async def update_nickname(body: NicknameUpdateRequest, user: CurrentUser, db: DbSession):
+    """로그인한 사용자의 닉네임을 변경한다."""
+    return await service.update_nickname(db, user, body.nickname)
+
+
+@router.patch("/password", response_model=MessageOut)
+async def change_password(body: PasswordChangeRequest, user: CurrentUser, db: DbSession):
+    """현재 비밀번호 확인 후 새 비밀번호로 변경한다. 로컬 계정에서만 사용할 수 있다."""
+    await service.change_password(db, user, body.current_password, body.new_password)
+    return MessageOut(message="비밀번호가 변경되었습니다. 다시 로그인해 주세요.")
 
 
 @router.delete("/account", response_model=MessageOut)

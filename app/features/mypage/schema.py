@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.features.products.schema import ProductCategory
 from app.shared.schema import Page
@@ -15,6 +17,32 @@ class ProfileOut(BaseModel):
     profile_image_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class NicknameUpdateRequest(BaseModel):
+    nickname: str = Field(..., min_length=2, max_length=20)
+
+    @field_validator("nickname")
+    @classmethod
+    def strip_nickname(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("닉네임은 2자 이상이어야 합니다.")
+        return value
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=200)
+    new_password: str = Field(..., min_length=8, max_length=72)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
+            raise ValueError("비밀번호는 영문과 숫자를 모두 포함해야 합니다.")
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("비밀번호가 너무 깁니다. 최대 72바이트입니다.")
+        return value
 
 
 class SavedCounts(BaseModel):

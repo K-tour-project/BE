@@ -9,7 +9,6 @@
 - 좌표는 `geography` 컬럼이라 ST_X/ST_Y를 쓰려면 geometry로 캐스팅해야 한다.
 - 장소에 붙는 `contents` 배열은 장소마다 따로 조회하면 N+1이 되므로,
   place_id 목록을 모아 **한 번에** 가져와 파이썬에서 묶는다.
-- 지역이 시도면 그 아래 시군구의 장소까지 포함한다(`region_scope_ids`).
 
 `GET /places/{place_id}`(TourAPI 실시간 상세)는 4단계에서 여기에 추가한다.
 그때 [`app/integrations/tour_api.py`](../../integrations/tour_api.py)를 호출한다.
@@ -35,7 +34,7 @@ from app.features.places.schema import (
     RelatedTourismPlace,
     TourDetail,
 )
-from app.features.regions.service import region_ref, region_scope_ids
+from app.features.regions.service import region_ref
 from app.integrations.call_log import save_calls
 from app.integrations.tour_api import (
     TourApiClient,
@@ -112,60 +111,6 @@ async def _contents_by_place(
     for anchor in anchors:
         out[anchor.place_id] = products_by_name.get(anchor.name, [])
     return out
-
-
-def _shoot_count_sq():
-    """동일 장소명의 촬영 작품 수."""
-    sibling = aliased(Place)
-    return select(func.count(func.distinct(sibling.title))).where(sibling.name == Place.name).scalar_subquery()
-
-
-async def places_in_region(
-    db: AsyncSession,
-    region_id: int,
-    content_id: int | None,
-    limit: int,
-    offset: int,
-    sort: str = "popular",
-) -> tuple[list[PlaceOnMap], int]:
-    """지역 내 촬영지. (`GET /regions/{id}/places`)
-
-    ★ 기본 정렬이 '촬영 횟수순'인 이유
-      강남구 473곳·종로구 399곳처럼 촬영지가 몰린 지역이 있다. 여기서 이름 가나다순으로
-      앞 20개를 주면 「달」·「누리」·「모색」 같은 한 글자 가게들이 나오고 경복궁은 안 보인다.
-      사용자가 지역을 눌렀을 때 기대하는 건 그 동네의 **대표 촬영지**다.
-      (종로구 촬영횟수순 = 경복궁 10편 · 경희궁 9편 · 낙산공원 9편 · 창덕궁 8편)
-    """
-    scope = await region_scope_ids(db, region_id)
-
-    stmt = _place_select().where(Place.region_id.in_(scope))
-    count_stmt = select(func.count()).select_from(Place).where(Place.region_id.in_(scope))
-
-    if content_id is not None:
-        product_title = select(Product.title).where(Product.product_id == content_id).scalar_subquery()
-        stmt = stmt.where(Place.title == product_title)
-        count_stmt = count_stmt.where(Place.title == product_title)
-
-    order = (
-        [Place.name] if sort == "name" else [_shoot_count_sq().desc(), Place.name]
-    )
-
-    total = await db.scalar(count_stmt)
-    rows = (await db.execute(stmt.order_by(*order).limit(limit).offset(offset))).all()
-    by_place = await _contents_by_place(db, [r.place_id for r in rows], content_id)
-
-    return [
-        PlaceOnMap(
-            place_id=r.place_id,
-            name=r.name,
-            location=Location(lat=r.lat, lng=r.lng),
-            address=r.address,
-            road_address=r.road_address,
-            region=region_ref(r.region_id, r.region_name, r.parent_name),
-            contents=by_place.get(r.place_id, []),
-        )
-        for r in rows
-    ], (total or 0)
 
 
 async def _place_row(db: AsyncSession, place_id: int):

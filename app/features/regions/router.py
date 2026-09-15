@@ -5,8 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db
-from app.features.places.schema import PlaceOnMap
-from app.features.places.service import places_in_region
 from app.features.regions import service
 from app.features.regions.schema import (
     RegionBoundaryResponse,
@@ -51,19 +49,3 @@ async def get_region_boundary(region_id: int, db: AsyncSession = Depends(get_db)
     if region is None:
         raise HTTPException(status_code=404, detail="Region boundary not found.")
     return region
-
-
-@router.get("/{region_id}/places", response_model=Page[PlaceOnMap])
-async def get_region_places(
-    region_id: int,
-    content_id: int | None = Query(None, description="Filter places by content_id"),
-    sort: str = Query("popular", pattern="^(popular|name)$"),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-):
-    items, total = await places_in_region(db, region_id, content_id, limit, offset, sort)
-    if total == 0 and not items:
-        if not await service.resolve_region_exists(db, region_id):
-            raise HTTPException(status_code=404, detail="Region not found.")
-    return Page[PlaceOnMap](items=items, total=total)

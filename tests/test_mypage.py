@@ -2,12 +2,19 @@
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
+from pydantic import ValidationError
+from fastapi import HTTPException
+
+from app.core.security import hash_password, verify_password
 from app.features.auth.schema import SignupRequest
+from app.features.mypage.schema import NicknameUpdateRequest, PasswordChangeRequest
 from app.features.auth.social import _profile_image_url
 from app.integrations.r2 import identify_profile_image, object_key_from_public_url
-from app.features.mypage.service import _live_places
+from app.features.mypage.service import _live_places, change_password, update_nickname
 from app.integrations.tour_api import TourApiError, TourApiKeyMissing
 from app.main import app
+from app.models.common import AuthProvider
+from app.models.user import User
 
 
 class ProfileContractTests(unittest.TestCase):
@@ -37,11 +44,20 @@ class ProfileContractTests(unittest.TestCase):
 
     def test_application_registers_mypage_and_existing_detail_routes(self):
         paths = app.openapi()["paths"]
-        for path in ("/me/mypage", "/me/favorite-places", "/me/saved-products", "/me/profile", "/me/account",
+        for path in ("/me/mypage", "/me/favorite-places", "/me/saved-products", "/me/profile",
+                      "/me/nickname", "/me/password", "/me/account",
                       "/places/{place_id}", "/tourism-places/{content_id}", "/contents/{product_id}"):
             self.assertIn(path, paths)
         self.assertIn("security", paths["/me/mypage"]["get"])
         self.assertIn("security", paths["/me/account"]["delete"])
+
+    def test_profile_setting_requests_are_validated(self):
+        self.assertEqual(NicknameUpdateRequest(nickname="  New name  ").nickname, "New name")
+        PasswordChangeRequest(current_password="old", new_password="newpass123")
+        with self.assertRaises(ValidationError):
+            NicknameUpdateRequest(nickname=" x ")
+        with self.assertRaises(ValidationError):
+            PasswordChangeRequest(current_password="old", new_password="onlyletters")
 
 
 class LiveFavoriteTests(unittest.IsolatedAsyncioTestCase):
@@ -71,3 +87,44 @@ class LiveFavoriteTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_key_keeps_saved_rows_available(self):
         with patch("app.features.mypage.service.TourApiClient", side_effect=TourApiKeyMissing()):
             self.assertEqual(await _live_places(AsyncMock(), 1, {"1"}), {"1": (None, "unavailable")})
+
+
+class ProfileSettingServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_nickname_is_saved(self):
+        db = AsyncMock()
+        user = User(user_id=1, nickname="Old", auth_provider=AuthProvider.google,
+                    provider_user_id="google-user", email_verified=True)
+
+        result = await update_nickname(db, user, "New name")
+
+        self.assertEqual(result.nickname, "New name")
+        db.commit.assert_awaited_once()
+
+    async def test_password_change_rehashes_and_revokes_refresh_tokens(self):
+        db = AsyncMock()
+        old_hash = hash_password("oldpass123")
+        user = User(user_id=1, nickname="Tester", auth_provider=AuthProvider.local,
+                    email="user@example.com", password_hash=old_hash, email_verified=True)
+
+        await change_password(db, user, "oldpass123", "newpass456")
+
+        self.assertFalse(verify_password("oldpass123", user.password_hash))
+        self.assertTrue(verify_password("newpass456", user.password_hash))
+        db.execute.assert_awaited_once()
+        db.commit.assert_awaited_once()
+
+    async def test_password_change_rejects_wrong_password_and_social_accounts(self):
+        db = AsyncMock()
+        local = User(user_id=1, nickname="Tester", auth_provider=AuthProvider.local,
+                     email="user@example.com", password_hash=hash_password("oldpass123"),
+                     email_verified=True)
+        social = User(user_id=2, nickname="Social", auth_provider=AuthProvider.google,
+                      provider_user_id="google-user", email_verified=True)
+
+        with self.assertRaises(HTTPException) as wrong:
+            await change_password(db, local, "wrongpass", "newpass456")
+        self.assertEqual(wrong.exception.status_code, 400)
+        with self.assertRaises(HTTPException) as unsupported:
+            await change_password(db, social, "anything", "newpass456")
+        self.assertEqual(unsupported.exception.status_code, 400)
+        db.commit.assert_not_awaited()

@@ -12,7 +12,7 @@ from app.shared.schema import Location, RegionRef
 
 
 class PlaceOnMap(BaseModel):
-    """지역 내 촬영지 항목. `GET /regions/{id}/places`, `GET /places?near=`
+    """촬영지 항목. `GET /places?near=`
 
     한 장소에 작품이 여러 개 붙는다(강릉선교장 = 5작품).
     """

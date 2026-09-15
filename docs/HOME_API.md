@@ -59,8 +59,8 @@ API 키가 없으면 `503`, TourAPI 호출이 모두 실패하면 `502`를 반�
 - **지역으로 찾기**: `GET /regions/sidos`로 시도를 보여주고, 시도 선택 후
   `GET /regions/{sido_id}/children`으로 시군구를 보여준다. 지역명을 직접 입력하는 UI라면
   `GET /regions/resolve?name={지역명}`으로 후보를 찾는다.
-- 지역을 선택하면 `region_id`로 `GET /regions/{region_id}/tourism-places`를 호출해 관광지를,
-  `GET /regions/{region_id}/places`를 호출해 작품 촬영지를 조회한다.
+- 지역을 선택하면 `region_id`로 `GET /regions/{region_id}/tourism-places`를 호출해
+  일반 관광지와 촬영지로 분류된 관광지를 함께 조회한다.
 
 상단 기능은 장소명을 검색하는 방식이 아니다. 이름이 같은 시군구를 구분할 수 있도록
 프론트와 백엔드는 지역 선택 이후 `region_id`를 주고받는다.

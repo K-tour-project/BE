@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -12,9 +13,12 @@ from sqlalchemy.orm import aliased
 from app.features.mypage.schema import (
     FavoritePlaceOut, MyPageOut, ProfileOut, SavedCounts, SavedProductOut, SaveState,
 )
+from app.core.security import hash_password, verify_password
 from app.integrations.call_log import save_calls
 from app.integrations.tour_api import TourApiClient, TourApiError
 from app.models import Place, PlaceFavorite, Product, ProductFavorite, Region, User, UserProfile
+from app.models.auth import RefreshToken
+from app.models.common import AuthProvider
 from app.integrations import r2
 from app.shared.schema import Page
 
@@ -260,6 +264,37 @@ async def update_profile(
         await r2.delete_object(old_key)
     await db.refresh(user, attribute_names=["profile"])
     return ProfileOut.model_validate(user)
+
+
+async def update_nickname(db: AsyncSession, user: User, nickname: str) -> ProfileOut:
+    user.nickname = nickname
+    await db.commit()
+    return ProfileOut.model_validate(user)
+
+
+async def change_password(
+    db: AsyncSession,
+    user: User,
+    current_password: str,
+    new_password: str,
+) -> None:
+    if user.auth_provider != AuthProvider.local:
+        raise HTTPException(status_code=400, detail="소셜 로그인 계정은 비밀번호를 변경할 수 없습니다.")
+    if not verify_password(current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="현재 비밀번호가 일치하지 않습니다.")
+    if verify_password(new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="새 비밀번호는 현재 비밀번호와 달라야 합니다.")
+
+    user.password_hash = hash_password(new_password)
+    await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.user_id,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    await db.commit()
 
 
 async def delete_account(db: AsyncSession, user: User) -> None:
