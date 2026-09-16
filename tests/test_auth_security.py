@@ -15,8 +15,12 @@ from app.features.auth.schema import (
     KakaoLoginRequest,
     LoginRequest,
     RefreshRequest,
+    UserOut,
 )
 from app.features.auth.service import rotate_tokens
+from app.features.mypage.schema import ProfileOut
+from app.models.common import AuthProvider
+from app.models.user import User
 
 
 class DeviceIdValidationTests(unittest.TestCase):
@@ -39,6 +43,29 @@ class DeviceIdValidationTests(unittest.TestCase):
     def test_device_id_longer_than_128_is_rejected(self):
         with self.assertRaises(ValidationError):
             RefreshRequest(refresh_token="token", device_id="a" * 129)
+
+
+class KakaoEmailResponseTests(unittest.TestCase):
+    def test_missing_kakao_email_uses_display_text_in_auth_and_profile_responses(self):
+        user = User(
+            user_id=7, nickname="카카오 사용자", auth_provider=AuthProvider.kakao,
+            provider_user_id="kakao-7", email=None, email_verified=False,
+            created_at=datetime.now(timezone.utc),
+        )
+        self.assertEqual(UserOut.model_validate(user).email, "카카오 로그인 사용 중")
+        self.assertEqual(ProfileOut.model_validate(user).email, "카카오 로그인 사용 중")
+        self.assertIsNone(user.email)
+
+    def test_actual_kakao_email_and_other_providers_are_unchanged(self):
+        user = User(
+            user_id=8, nickname="카카오 사용자", auth_provider=AuthProvider.kakao,
+            provider_user_id="kakao-8", email="user@example.com", email_verified=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        self.assertEqual(UserOut.model_validate(user).email, "user@example.com")
+        user.auth_provider = AuthProvider.google
+        user.email = None
+        self.assertIsNone(UserOut.model_validate(user).email)
 
 
 class AccessTokenTests(unittest.TestCase):

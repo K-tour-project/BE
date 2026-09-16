@@ -33,6 +33,9 @@ from app.features.auth.schema import (
     LoginRequest,
     LogoutRequest,
     MessageOut,
+    PasswordResetRequest,
+    PasswordResetVerified,
+    PasswordResetVerifyRequest,
     RefreshRequest,
     SignupRequest,
     SignupResponse,
@@ -76,6 +79,30 @@ async def verify_email_code(body: EmailVerifyRequest, db: DbSession):
     return EmailVerified(
         signup_deadline_minutes=settings.EMAIL_VERIFIED_VALID_MINUTES
     )
+
+
+@router.post("/password-reset/send-code", response_model=EmailCodeSent)
+async def send_password_reset_code(body: EmailCodeRequest, db: DbSession):
+    """이메일 비밀번호 재설정 코드 발송. 미가입·소셜 계정에도 같은 형태로 응답한다."""
+    expires_in, dev_code = await service.send_password_reset_code(db, body.email)
+    return EmailCodeSent(expires_in=expires_in, dev_code=dev_code)
+
+
+@router.post("/password-reset/verify-code", response_model=PasswordResetVerified)
+async def verify_password_reset_code(body: PasswordResetVerifyRequest, db: DbSession):
+    """6자리 코드를 확인하고 1회용 재설정 토큰을 반환한다."""
+    token = await service.verify_password_reset_code(db, body.email, body.code)
+    return PasswordResetVerified(
+        reset_token=token,
+        expires_in=settings.PASSWORD_RESET_VALID_MINUTES * 60,
+    )
+
+
+@router.post("/password-reset/confirm", response_model=MessageOut)
+async def confirm_password_reset(body: PasswordResetRequest, db: DbSession):
+    """재설정 토큰으로 새 비밀번호를 저장하고 모든 refresh 세션을 폐기한다."""
+    await service.reset_password(db, body.reset_token, body.new_password)
+    return MessageOut(message="비밀번호가 변경되었습니다. 다시 로그인해 주세요.")
 
 
 # ───────────────────────────── 회원가입 ② · 일반 로그인 ────────────────────────────

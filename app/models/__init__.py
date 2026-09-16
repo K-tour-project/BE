@@ -5,7 +5,7 @@ search-history models remain inactive until their own migrations are implemented
 """
 from app.core.db import Base
 from app.models.api_log import ApiCallLog
-from app.models.auth import EmailVerification, RefreshToken
+from app.models.auth import EmailVerification, PasswordReset, RefreshToken
 from app.models.course import Course, CoursePlace
 from app.models.favorite import PlaceFavorite, ProductFavorite
 from app.models.place import Place
@@ -36,4 +36,5 @@ __all__ = [
     "ApiCallLog",
     "RefreshToken",
     "EmailVerification",
+    "PasswordReset",
 ]

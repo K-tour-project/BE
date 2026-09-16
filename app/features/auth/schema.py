@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
 
 # 영문·숫자를 각각 최소 1개. 특수문자까지 강제하진 않는다 —
 # 요구사항을 늘릴수록 사용자가 'Password1!'류로 수렴해 오히려 예측하기 쉬워진다.
@@ -77,6 +77,25 @@ class EmailVerified(BaseModel):
     )
 
 
+class PasswordResetVerifyRequest(EmailVerifyRequest):
+    """비밀번호 재설정 코드 확인."""
+
+
+class PasswordResetVerified(BaseModel):
+    reset_token: str = Field(..., description="비밀번호 변경 요청에 사용할 1회용 토큰")
+    expires_in: int = Field(..., description="재설정 토큰 유효시간(초)")
+
+
+class PasswordResetRequest(BaseModel):
+    reset_token: str = Field(..., min_length=20, max_length=256)
+    new_password: str = Field(..., min_length=8, max_length=72)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, value: str) -> str:
+        return _PasswordField._check_strength(value)
+
+
 # ─────────────────────────────── 회원가입 · 로그인 ────────────────────────────────
 
 
@@ -139,7 +158,7 @@ class UserOut(BaseModel):
     user_id: int
     nickname: str
     auth_provider: str  # local | google | kakao
-    email: str | None = None
+    email: str | None = Field(None, validation_alias=AliasChoices("display_email", "email"))
     profile_image_url: str | None = None
     email_verified: bool
     created_at: datetime

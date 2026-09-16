@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -38,7 +40,7 @@ from app.features.auth import mailer
 from app.features.auth.schema import TokenPair, UserOut
 from app.features.auth.social import SocialProfile
 from app.integrations import r2
-from app.models.auth import EmailVerification, RefreshToken
+from app.models.auth import EmailVerification, PasswordReset, RefreshToken
 from app.models.common import AuthProvider
 from app.models.user import User
 from app.models.user_profile import UserProfile
@@ -62,6 +64,15 @@ def _normalize_email(email: str) -> str:
     이유를 알 수 없다. 도메인은 원래 대소문자를 구분하지 않고, 실무상 로컬파트도 마찬가지다.
     """
     return email.strip().lower()
+
+
+def _reset_code_hash(email: str, code: str) -> str:
+    # 6자리 코드의 DB 해시가 유출돼도 오프라인에서 전수 대입할 수 없도록 서버 키로 묶는다.
+    return hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        f"password-reset:{email}:{code}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 # ═══════════════════════════════ 토큰 발급·회전·폐기 ═══════════════════════════════
@@ -266,6 +277,98 @@ async def confirm_email_code(db: AsyncSession, email: str, code: str) -> None:
         raise HTTPException(status_code=400, detail="인증코드가 일치하지 않습니다.")
 
     row.verified_at = _now()
+    await db.commit()
+
+
+async def send_password_reset_code(db: AsyncSession, email: str) -> tuple[int, str | None]:
+    """가입 여부를 응답에 드러내지 않고 로컬 계정에만 코드를 보낸다."""
+    email = _normalize_email(email)
+    expires_in = settings.EMAIL_CODE_EXPIRE_MINUTES * 60
+    user = await db.scalar(select(User).where(User.email == email))
+    if user is None or not user.is_local:
+        return expires_in, None
+
+    cooldown_since = _now() - timedelta(seconds=settings.EMAIL_CODE_RESEND_COOLDOWN_SECONDS)
+    recent = await db.scalar(
+        select(PasswordReset.reset_id).where(
+            PasswordReset.email == email,
+            PasswordReset.created_at > cooldown_since,
+        ).limit(1)
+    )
+    if recent is not None:
+        return expires_in, None
+
+    await db.execute(
+        update(PasswordReset)
+        .where(PasswordReset.email == email, PasswordReset.consumed_at.is_(None))
+        .values(consumed_at=_now())
+    )
+    code, _ = create_email_code()
+    db.add(PasswordReset(
+        email=email,
+        code_hash=_reset_code_hash(email, code),
+        expires_at=_now() + timedelta(minutes=settings.EMAIL_CODE_EXPIRE_MINUTES),
+    ))
+    await db.commit()
+    await mailer.send_verification_code(email, code, purpose="password_reset")
+    # 개발 환경에서도 응답에 코드를 넣으면 계정 존재 여부와 재설정 코드가 노출된다.
+    return expires_in, None
+
+
+async def verify_password_reset_code(db: AsyncSession, email: str, code: str) -> str:
+    """코드를 한 번 확인하고 비밀번호 변경용 난수 토큰을 발급한다."""
+    email = _normalize_email(email)
+    row = await db.scalar(
+        select(PasswordReset)
+        .where(PasswordReset.email == email, PasswordReset.consumed_at.is_(None))
+        .order_by(PasswordReset.reset_id.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    invalid = HTTPException(status_code=400, detail="인증코드가 올바르지 않거나 만료되었습니다.")
+    if row is None or row.expires_at <= _now() or row.reset_token_hash is not None:
+        raise invalid
+    if row.attempt_count >= settings.EMAIL_CODE_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="인증 시도 횟수를 초과했습니다. 새 코드를 요청해 주세요.")
+
+    row.attempt_count += 1
+    matched = hmac.compare_digest(_reset_code_hash(email, code), row.code_hash)
+    if not matched:
+        await db.commit()  # 실패 횟수는 예외 전에 확정한다.
+        raise invalid
+
+    raw_token = secrets.token_urlsafe(32)
+    row.reset_token_hash = hash_refresh_token(raw_token)
+    row.token_expires_at = _now() + timedelta(minutes=settings.PASSWORD_RESET_VALID_MINUTES)
+    await db.commit()
+    return raw_token
+
+
+async def reset_password(db: AsyncSession, raw_token: str, new_password: str) -> None:
+    """토큰을 한 번만 사용해 비밀번호를 변경하고 모든 refresh 세션을 폐기한다."""
+    row = await db.scalar(
+        select(PasswordReset)
+        .where(PasswordReset.reset_token_hash == hash_refresh_token(raw_token))
+        .with_for_update()
+    )
+    invalid = HTTPException(status_code=400, detail="재설정 인증이 만료되었거나 이미 사용되었습니다.")
+    if row is None or row.consumed_at is not None or row.token_expires_at is None or row.token_expires_at <= _now():
+        raise invalid
+    user = await db.scalar(select(User).where(User.email == row.email).with_for_update())
+    if user is None or not user.is_local:
+        raise invalid
+
+    user.password_hash = hash_password(new_password)
+    await db.execute(
+        update(PasswordReset)
+        .where(PasswordReset.email == row.email, PasswordReset.consumed_at.is_(None))
+        .values(consumed_at=_now())
+    )
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user.user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=_now())
+    )
     await db.commit()
 
 

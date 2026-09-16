@@ -157,6 +157,15 @@ async def import_places(session, rows):
                 place = candidates[0]
             elif candidates and incoming[(row["title"], row["name"], row["source"])] == 1:
                 raise ValueError(f"Ambiguous changed place: {place_identity(row)}")
+        if place is None:
+            # Legacy KMDb places can have coordinates and an ID but no work title.
+            # Reuse a uniquely identified row when curated CSV data supplies its title.
+            legacy = list((await session.scalars(select(Place).where(
+                Place.title.is_(None), Place.name == row["name"],
+                Place.source == row["source"], Place.address == row["address"],
+            ))).all())
+            if len(legacy) == 1 and incoming[(row["title"], row["name"], row["source"])] == 1:
+                place = legacy[0]
         counts["inserted" if place is None else "matched"] += 1
         if place is None:
             place = Place()

@@ -28,15 +28,16 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _build_message(to: str, code: str) -> EmailMessage:
+def _build_message(to: str, code: str, *, purpose: str = "signup") -> EmailMessage:
     msg = EmailMessage()
-    msg["Subject"] = f"[Every Trip] 이메일 인증코드 {code}"
+    label = "비밀번호 재설정" if purpose == "password_reset" else "회원가입"
+    msg["Subject"] = f"[Every Trip] {label} 인증코드"
     sender = settings.SMTP_FROM.strip() or settings.SMTP_USER.strip()
     msg["From"] = f"{settings.SMTP_FROM_NAME} <{sender}>"
     msg["To"] = to
     minutes = settings.EMAIL_CODE_EXPIRE_MINUTES
     msg.set_content(
-        f"""Every Trip 회원가입 인증코드입니다.
+        f"""Every Trip {label} 인증코드입니다.
 
     인증코드: {code}
 
@@ -47,9 +48,9 @@ def _build_message(to: str, code: str) -> EmailMessage:
     return msg
 
 
-def _send_sync(to: str, code: str) -> None:
+def _send_sync(to: str, code: str, purpose: str = "signup") -> None:
     """실제 SMTP 발송. 스레드에서 실행된다."""
-    msg = _build_message(to, code)
+    msg = _build_message(to, code, purpose=purpose)
     if settings.SMTP_STARTTLS:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
             smtp.starttls(context=ssl.create_default_context())
@@ -69,10 +70,11 @@ def _send_sync(to: str, code: str) -> None:
             smtp.send_message(msg)
 
 
-async def send_verification_code(to: str, code: str) -> bool:
+async def send_verification_code(to: str, code: str, *, purpose: str = "signup") -> bool:
     """인증코드를 보낸다. 실제로 메일을 보냈으면 True, 로그 출력으로 대체했으면 False.
 
-    False가 돌아오면 라우터가 응답에 `dev_code`를 실어 준다(개발 편의).
+    False가 돌아오면 회원가입 API만 응답에 `dev_code`를 실어 준다.
+    비밀번호 재설정 API는 계정 존재 여부를 숨기기 위해 코드를 응답하지 않는다.
     """
     if not settings.smtp_ready:
         logger.warning(
@@ -81,7 +83,7 @@ async def send_verification_code(to: str, code: str) -> bool:
         return False
 
     try:
-        await anyio.to_thread.run_sync(_send_sync, to, code)
+        await anyio.to_thread.run_sync(_send_sync, to, code, purpose)
     except Exception:
         # 메일 서버 장애로 500을 던지면 사용자는 원인을 알 수 없다.
         # 코드는 이미 DB에 저장됐으므로, 실패를 로그에 남기고 재발송을 유도한다.

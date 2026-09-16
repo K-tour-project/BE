@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # --- 아래는 각 단계에서 사용 (기본값이 있어 값 없이도 서버가 뜬다) ---
     # 2단계(DB): PostgreSQL 연결 문자열
-    DATABASE_URL: str = "postgresql+asyncpg://ktour:ktour@localhost:5432/ktour"
+    DATABASE_URL: str = "postgresql+asyncpg://ktour:ktour@localhost:5432/ktour?ssl=disable"
 
     # ── 3단계(인증) — 우리 서버가 발급하는 토큰 ──────────────────────────────
     # SECRET_KEY: JWT 서명 키. 운영에선 반드시 .env로 교체(절대 노출 금지). 기본값은 개발용.
@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     EMAIL_CODE_RESEND_COOLDOWN_SECONDS: int = 60
     # 코드 확인 후 이 시간 안에 회원가입을 마쳐야 한다(인증만 해두고 방치하는 것 방지).
     EMAIL_VERIFIED_VALID_MINUTES: int = 30
+    PASSWORD_RESET_VALID_MINUTES: int = 15
 
     # Cloudflare R2 프로필 이미지 저장소
     R2_ACCOUNT_ID: str = ""
@@ -97,8 +98,8 @@ class Settings(BaseSettings):
     #    ⚠️ 코드 체계가 다르다 — areaCd/signguCd는 TourAPI 지역코드가 아니라 **법정동 코드**다
     #       (강원특별자치도=51, 강릉시=51150). regions 테이블 채우기 전엔 호출할 수 없다.
     TOUR_RLTE_API_BASE: str = "http://apis.data.go.kr/B551011/TarRlteTarService1"
-    # 이 서비스는 기준연월(baseYm)이 필수. 202312은 0건, 202606까지 데이터 확인됨.
-    TOUR_RLTE_BASE_YM: str = "202606"
+    # 이 서비스는 기준연월(baseYm)이 필수.
+    TOUR_RLTE_BASE_YM: str = "202609"
 
     # 공사 요구 식별자(모든 요청에 붙는다)
     TOUR_API_APP_NAME: str = "EveryTrip"

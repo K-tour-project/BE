@@ -4,7 +4,7 @@ from typing import Literal
 
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.features.products.schema import ProductCategory
 from app.shared.schema import Page
@@ -13,7 +13,7 @@ from app.shared.schema import Page
 class ProfileOut(BaseModel):
     user_id: int
     nickname: str
-    email: str | None = None
+    email: str | None = Field(None, validation_alias=AliasChoices("display_email", "email"))
     profile_image_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

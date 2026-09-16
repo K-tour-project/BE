@@ -67,6 +67,13 @@ class User(Base, CreatedAtMixin):
     def profile_image_url(self) -> str | None:
         return self.profile.profile_image_url if self.profile else None
 
+    @property
+    def display_email(self) -> str | None:
+        """카카오가 이메일을 제공하지 않은 경우 API 화면용 문구를 반환한다."""
+        if self.auth_provider == AuthProvider.kakao and not self.email:
+            return "카카오 로그인 사용 중"
+        return self.email
+
     __table_args__ = (
         UniqueConstraint("auth_provider", "provider_user_id", name="uq_users_provider"),
         # 경로별 필수 칼럼을 DB 차원에서 강제 — 코드 버그로 반쪽짜리 계정이 생기는 걸 막는다.

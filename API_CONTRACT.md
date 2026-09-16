@@ -134,12 +134,14 @@
     "user_id": 1,
     "nickname": "은서",
     "auth_provider": "local",             // local | google | kakao
-    "email": "eunseo@example.com",        // ? 카카오는 null일 수 있음
+    "email": "eunseo@example.com",        // 카카오 계정에 실제 이메일이 없으면 "카카오 로그인 사용 중"
     "email_verified": true,
     "created_at": "2026-08-22T07:48:43Z"
   }
 }
 ```
+
+카카오 계정에 이메일이 제공되지 않으면 로그인·토큰 갱신·`GET /auth/me`·마이페이지 프로필 응답의 `email`에는 화면용 문구 `"카카오 로그인 사용 중"`이 들어갑니다. DB 이메일 값은 `null` 그대로이며, 이 문구를 메일 발송이나 이메일 형식 검사에 사용하면 안 됩니다.
 
 ---
 
@@ -213,6 +215,16 @@ profile_image=(선택 이미지 파일)
   앱에서도 "없는 계정입니다" 같은 추측 문구를 만들지 마세요.
 - `409` 그 이메일은 소셜로 가입돼 있음 → `detail` 문구를 그대로 보여주면 됩니다
 - `device_id`는 8~128자의 영문·숫자·`_`·`-`·`.`·`:` 조합이며, 누락·형식 오류는 `422`
+
+### 2.2.1 비밀번호 찾기 (이메일 계정)
+
+로그인 없이 다음 순서로 호출합니다. 소셜 계정은 해당 제공자로 로그인해야 합니다.
+
+1. `POST /auth/password-reset/send-code` — `{ "email": "eunseo@example.com" }` → `{ "expires_in": 180, "dev_code": null }`. 가입 여부는 응답으로 알려주지 않습니다. 코드 유효시간은 기본 3분이며 재발송 간격은 60초입니다. SMTP가 없으면 메일을 보내지 않고 개발 서버 로그에만 코드를 출력합니다. 재설정 응답의 `dev_code`는 항상 `null`입니다.
+2. `POST /auth/password-reset/verify-code` — `{ "email": "eunseo@example.com", "code": "123456" }` → `{ "reset_token": "...", "expires_in": 900 }`. 5회 이상 틀리면 새 코드를 받아야 합니다. 확인한 코드는 재사용할 수 없습니다.
+3. `POST /auth/password-reset/confirm` — `{ "reset_token": "...", "new_password": "newpass123" }` → `{ "message": "비밀번호가 변경되었습니다. 다시 로그인해 주세요." }`. 토큰은 1회용이며 기본 15분간 유효합니다. 비밀번호는 8자 이상, 72바이트 이하, 영문과 숫자를 포함해야 합니다. 성공하면 모든 refresh 토큰을 폐기하므로 다시 로그인해야 합니다. 이미 발급된 access 토큰은 만료 시각까지 유효합니다.
+
+프론트의 새 비밀번호 확인란은 두 입력이 같은지 제출 전에 검사하고, API에는 `new_password`만 보냅니다.
 
 ### 2.3 소셜 로그인 (간편로그인)
 

@@ -86,3 +86,22 @@ class EmailVerification(Base, CreatedAtMixin):
         # "이 이메일의 가장 최근 인증건" 조회 — 발송·확인 양쪽에서 매번 쓴다.
         Index("ix_email_verifications_email_created", "email", "created_at"),
     )
+
+
+class PasswordReset(Base, CreatedAtMixin):
+    """비밀번호 재설정 코드와 1회용 재설정 토큰. 가입 인증과 섞지 않는다."""
+
+    __tablename__ = "password_resets"
+
+    reset_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    reset_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        Index("ix_password_resets_email_created", "email", "created_at"),
+    )
