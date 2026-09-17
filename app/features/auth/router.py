@@ -83,7 +83,7 @@ async def verify_email_code(body: EmailVerifyRequest, db: DbSession):
 
 @router.post("/password-reset/send-code", response_model=EmailCodeSent)
 async def send_password_reset_code(body: EmailCodeRequest, db: DbSession):
-    """이메일 비밀번호 재설정 코드 발송. 미가입·소셜 계정에도 같은 형태로 응답한다."""
+    """이메일 비밀번호 재설정 코드 발송. 미가입은 404, 소셜 계정은 409를 반환한다."""
     expires_in, dev_code = await service.send_password_reset_code(db, body.email)
     return EmailCodeSent(expires_in=expires_in, dev_code=dev_code)
 

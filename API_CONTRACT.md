@@ -220,7 +220,7 @@ profile_image=(선택 이미지 파일)
 
 로그인 없이 다음 순서로 호출합니다. 소셜 계정은 해당 제공자로 로그인해야 합니다.
 
-1. `POST /auth/password-reset/send-code` — `{ "email": "eunseo@example.com" }` → `{ "expires_in": 180, "dev_code": null }`. 가입 여부는 응답으로 알려주지 않습니다. 코드 유효시간은 기본 3분이며 재발송 간격은 60초입니다. SMTP가 없으면 메일을 보내지 않고 개발 서버 로그에만 코드를 출력합니다. 재설정 응답의 `dev_code`는 항상 `null`입니다.
+1. `POST /auth/password-reset/send-code` — `{ "email": "eunseo@example.com" }` → `{ "expires_in": 180, "dev_code": null }`. 미가입 이메일은 `404` (`"가입되지 않은 이메일입니다."`), 구글 로그인 계정은 `409` (`"이미 구글 계정으로 가입된 이메일입니다. 구글 로그인을 이용해 주세요."`), 카카오 로그인 계정은 같은 형식의 카카오 로그인 안내와 함께 `409`를 반환하며 코드를 보내지 않습니다. 코드 유효시간은 기본 3분이며 재발송 간격은 60초입니다. SMTP가 없으면 메일을 보내지 않고 개발 서버 로그에만 코드를 출력합니다. 재설정 응답의 `dev_code`는 항상 `null`입니다.
 2. `POST /auth/password-reset/verify-code` — `{ "email": "eunseo@example.com", "code": "123456" }` → `{ "reset_token": "...", "expires_in": 900 }`. 5회 이상 틀리면 새 코드를 받아야 합니다. 확인한 코드는 재사용할 수 없습니다.
 3. `POST /auth/password-reset/confirm` — `{ "reset_token": "...", "new_password": "newpass123" }` → `{ "message": "비밀번호가 변경되었습니다. 다시 로그인해 주세요." }`. 토큰은 1회용이며 기본 15분간 유효합니다. 비밀번호는 8자 이상, 72바이트 이하, 영문과 숫자를 포함해야 합니다. 성공하면 모든 refresh 토큰을 폐기하므로 다시 로그인해야 합니다. 이미 발급된 access 토큰은 만료 시각까지 유효합니다.
 

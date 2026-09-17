@@ -281,12 +281,14 @@ async def confirm_email_code(db: AsyncSession, email: str, code: str) -> None:
 
 
 async def send_password_reset_code(db: AsyncSession, email: str) -> tuple[int, str | None]:
-    """가입 여부를 응답에 드러내지 않고 로컬 계정에만 코드를 보낸다."""
+    """로컬 계정에만 재설정 코드를 보내고, 발송 불가 사유를 반환한다."""
     email = _normalize_email(email)
     expires_in = settings.EMAIL_CODE_EXPIRE_MINUTES * 60
     user = await db.scalar(select(User).where(User.email == email))
-    if user is None or not user.is_local:
-        return expires_in, None
+    if user is None:
+        raise HTTPException(status_code=404, detail="가입되지 않은 이메일입니다.")
+    if not user.is_local:
+        raise HTTPException(status_code=409, detail=_already_registered(user))
 
     cooldown_since = _now() - timedelta(seconds=settings.EMAIL_CODE_RESEND_COOLDOWN_SECONDS)
     recent = await db.scalar(

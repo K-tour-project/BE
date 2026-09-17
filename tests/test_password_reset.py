@@ -45,12 +45,31 @@ class PasswordResetServiceTests(unittest.IsolatedAsyncioTestCase):
             attempt_count=0,
         )
 
-    async def test_unknown_email_gets_generic_response_without_sending_mail(self):
+    async def test_unknown_email_returns_404_without_sending_mail(self):
         db = AsyncMock()
         db.scalar.return_value = None
         with patch("app.features.auth.service.mailer.send_verification_code", new_callable=AsyncMock) as send:
-            result = await send_password_reset_code(db, "nobody@example.com")
-        self.assertEqual(result, (settings.EMAIL_CODE_EXPIRE_MINUTES * 60, None))
+            with self.assertRaises(HTTPException) as error:
+                await send_password_reset_code(db, "nobody@example.com")
+        self.assertEqual(error.exception.status_code, 404)
+        self.assertEqual(error.exception.detail, "가입되지 않은 이메일입니다.")
+        send.assert_not_awaited()
+        db.commit.assert_not_awaited()
+
+    async def test_google_account_returns_provider_guidance_without_sending_mail(self):
+        db = AsyncMock()
+        db.scalar.return_value = User(
+            user_id=7, nickname="Tester", auth_provider=AuthProvider.google,
+            email="social@example.com", provider_user_id="google-7",
+        )
+        with patch("app.features.auth.service.mailer.send_verification_code", new_callable=AsyncMock) as send:
+            with self.assertRaises(HTTPException) as error:
+                await send_password_reset_code(db, "social@example.com")
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertEqual(
+            error.exception.detail,
+            "이미 구글 계정으로 가입된 이메일입니다. 구글 로그인을 이용해 주세요.",
+        )
         send.assert_not_awaited()
         db.commit.assert_not_awaited()
 
