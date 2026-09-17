@@ -12,7 +12,7 @@ from app.models import Product
 
 
 class HomeTests(unittest.IsolatedAsyncioTestCase):
-    async def test_popular_products_have_deterministic_rating_order_and_links(self):
+    async def test_popular_products_have_deterministic_popularity_order_and_links(self):
         db = AsyncMock()
         db.scalars.return_value = Mock(all=Mock(return_value=[
             Product(
@@ -32,9 +32,11 @@ class HomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(items[0].release_year, 2024)
         self.assertEqual(items[0].rating, 9.2)
         query = str(db.scalars.call_args.args[0])
-        self.assertIn("products.rating DESC NULLS LAST", query)
-        self.assertIn("products.popularity DESC NULLS LAST", query)
-        self.assertIn("products.product_id ASC", query)
+        popularity_order = query.index("products.popularity DESC NULLS LAST")
+        rating_order = query.index("products.rating DESC NULLS LAST")
+        id_order = query.index("products.product_id ASC")
+        self.assertLess(popularity_order, rating_order)
+        self.assertLess(rating_order, id_order)
         self.assertIn("LIMIT", query)
 
     async def test_tourism_cards_keep_favorite_ranking_and_detail_path(self):

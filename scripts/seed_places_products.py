@@ -10,10 +10,13 @@ from decimal import Decimal
 from pathlib import Path
 
 from geoalchemy2 import WKTElement
-from sqlalchemy import select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from app.core.db import AsyncSessionLocal, engine
-from app.models import DramaDetail, MovieDetail, Place, Product
+from app.models import (
+    CoursePlace, DramaDetail, MovieDetail, Place, PlaceFavorite, Product,
+    ProductFavorite,
+)
 
 DATA = Path(__file__).resolve().parents[1] / "data"
 PLACE_COLUMNS = {
@@ -184,7 +187,55 @@ async def import_places(session, rows):
     print(f"places: {dict(counts)}")
 
 
-async def seed(dry_run=False, only=None):
+async def prune_missing_csv_rows(session, movies, dramas, places, only=None):
+    """Remove CSV-managed rows absent from the current files, if no user data refers to them."""
+    if only != "places":
+        expected = {
+            row_hash(product_identity(row)) for row in movies + dramas
+        }
+        managed = (await session.execute(
+            select(Product.product_id, Product.csv_row_hash)
+            .where(Product.csv_row_hash.is_not(None))
+        )).all()
+        product_ids = [row.product_id for row in managed if row.csv_row_hash not in expected]
+        if product_ids:
+            favorites = await session.scalar(
+                select(func.count()).select_from(ProductFavorite)
+                .where(ProductFavorite.product_id.in_(product_ids))
+            )
+            if favorites:
+                raise ValueError(
+                    f"Cannot prune {len(product_ids)} products: {favorites} product favorites exist"
+                )
+            await session.execute(delete(Product).where(Product.product_id.in_(product_ids)))
+        print(f"Pruned CSV-managed products: {len(product_ids)}")
+
+    if only != "products":
+        expected = {row_hash(place_identity(row)) for row in places}
+        managed = (await session.execute(
+            select(Place.place_id, Place.csv_row_hash)
+            .where(Place.csv_row_hash.is_not(None))
+        )).all()
+        place_ids = [row.place_id for row in managed if row.csv_row_hash not in expected]
+        if place_ids:
+            favorites = await session.scalar(
+                select(func.count()).select_from(PlaceFavorite)
+                .where(PlaceFavorite.place_id.in_(place_ids))
+            )
+            course_stops = await session.scalar(
+                select(func.count()).select_from(CoursePlace)
+                .where(CoursePlace.place_id.in_(place_ids))
+            )
+            if favorites or course_stops:
+                raise ValueError(
+                    f"Cannot prune {len(place_ids)} places: "
+                    f"{favorites} favorites and {course_stops} course stops exist"
+                )
+            await session.execute(delete(Place).where(Place.place_id.in_(place_ids)))
+        print(f"Pruned CSV-managed places: {len(place_ids)}")
+
+
+async def seed(dry_run=False, only=None, prune=False):
     movies = load_rows("products_movie.csv", MOVIE_COLUMNS) if only != "places" else []
     dramas = load_rows("products_drama.csv", DRAMA_COLUMNS) if only != "places" else []
     places = load_rows("places.csv", PLACE_COLUMNS) if only != "products" else []
@@ -197,7 +248,9 @@ async def seed(dry_run=False, only=None):
             await import_products(session, movies)
             await import_products(session, dramas)
             await import_places(session, places)
-        print("Commit complete (no rows deleted)")
+            if prune:
+                await prune_missing_csv_rows(session, movies, dramas, places, only)
+        print("Commit complete" + ("" if prune else " (no rows deleted)"))
     finally:
         await engine.dispose()
 
@@ -206,5 +259,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--only", choices=("products", "places"))
+    parser.add_argument(
+        "--prune", action="store_true",
+        help="Delete CSV-managed rows absent from the current CSVs, unless user data refers to them.",
+    )
     args = parser.parse_args()
-    asyncio.run(seed(args.dry_run, args.only))
+    if args.dry_run and args.prune:
+        parser.error("--dry-run validates CSVs only; run --prune separately")
+    asyncio.run(seed(args.dry_run, args.only, args.prune))

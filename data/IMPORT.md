@@ -62,14 +62,26 @@ movie_details/drama_details에서는 별도의 ID를 생성하지 않는다.
 동일 식별자의 완전 중복은 제거하고 값이 충돌하면 중단한다. 날짜/제목이 변경된 작품은
 외부 고유 ID가 없으므로 새 작품으로 취급될 수 있다.
 전체 import는 단일 트랜잭션이며 advisory lock으로 동시 실행을 직렬화한다.
-오류 시 전체 rollback, 어떤 기존 행도 삭제하지 않는다.
+오류 시 전체 rollback한다. 기본 실행에서는 기존 행을 삭제하지 않는다.
+
+CSV에서 행을 삭제한 내용을 DB에도 반영하려면 별도로 `--prune`을 지정한다.
+이 옵션은 `csv_row_hash`가 있는 CSV 관리 행 중 현재 파일에 없는 행만 삭제한다.
+작품 찜, 장소 찜, 코스 경유지에 연결된 행이 있으면 전체 작업을 중단하고 rollback한다.
+사용자 데이터가 없는지 확인한 후에만 실행한다. `--dry-run`은 CSV 형식만 검증하며
+`--prune`과 함께 사용할 수 없다.
+
+```powershell
+.venv/Scripts/python.exe -m scripts.seed_places_products --prune
+```
 
 places.csv의 제목/장소명/주소/위도/경도/source_url/데이터출처/위치정보출처는 각각
 places.title/name/address/latitude/longitude/source_url/source/location_source에 대응한다.
 없어진 장소유형 컬럼은 필수가 아니며 기존 place_type은 유지한다.
 장소는 제목·이름·출처·주소·URL·좌표로 식별한다. 같은 제목·이름·출처가 유일할 때는
 주소/좌표 변경도 기존 ID에 반영한다. 복수 출처 URL/좌표는 별도 행으로 보존한다.
-기존 중복 행과 CSV에서 사라진 행은 삭제하지 않는다. 장소명이 바뀌면 새 장소일 수 있다.
+기본 실행은 기존 중복 행과 CSV에서 사라진 행을 삭제하지 않는다. `--prune`을
+지정하면 CSV 관리 행 중 현재 파일에서 빠진 행을 정리한다. 장소명이 바뀌면 새
+장소로 취급될 수 있으므로 `--prune` 전에 변경된 식별자를 확인한다.
 좌표는 DB의 소수점 7자리로 맞추고 geom도 갱신한다. 위치 변경 시 region_id와 TourAPI 매칭은
 초기화하여 예전 위치의 연결이 노출되지 않게 한다. 재매칭은 별도 작업이다.
 

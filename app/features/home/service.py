@@ -18,13 +18,13 @@ HOME_ITEM_LIMIT = 10
 async def popular_products(
     db: AsyncSession, limit: int = HOME_ITEM_LIMIT
 ) -> list[PopularProduct]:
-    """별점 내림차순 작품. 동점은 인기도와 ID로 항상 같은 순서를 만든다."""
+    """인기도 내림차순 작품. 동점은 별점과 ID로 항상 같은 순서를 만든다."""
     products = (
         await db.scalars(
             select(Product)
             .order_by(
-                Product.rating.desc().nulls_last(),
                 Product.popularity.desc().nulls_last(),
+                Product.rating.desc().nulls_last(),
                 Product.product_id.asc(),
             )
             .limit(limit)

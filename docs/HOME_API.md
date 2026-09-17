@@ -34,8 +34,8 @@
 }
 ```
 
-- 작품은 `products.rating DESC NULLS LAST` 순이며, 같은 별점은 `popularity DESC`,
-  `product_id ASC` 순으로 고정한다. 최대 10개다.
+- 작품은 `products.popularity DESC NULLS LAST` 순이며, 같은 인기도는
+  `rating DESC NULLS LAST`, `product_id ASC` 순으로 고정한다. 최대 10개다.
 - 관광지는 앱 사용자의 찜 수 내림차순이다. 촬영지로 연결된 장소와 TourAPI에서 직접
   찜한 장소를 하나의 `content_id`로 묶어 사용자 수를 중복 없이 센다.
 - 찜에는 입장료 조건이 없으므로 무료·유료 관광지를 모두 포함한다.

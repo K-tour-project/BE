@@ -11,7 +11,7 @@ router = APIRouter(tags=["home"])
 
 @router.get("/home", response_model=HomeOut, summary="홈 화면 인기 작품·관광지")
 async def get_home(db: DbSession):
-    """별점 상위 작품과 찜 순위·초기 대체 관광지를 각각 최대 10개 반환한다."""
+    """인기도 상위 작품과 찜 순위·초기 대체 관광지를 각각 최대 10개 반환한다."""
     try:
         return await service.home(db)
     except TourApiKeyMissing as exc:
