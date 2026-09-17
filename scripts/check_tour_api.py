@@ -83,7 +83,7 @@ async def main() -> None:
     try:
         async with TourApiClient() as api:
             # ★ 실측 결과 locationBasedList는 관광지(contenttypeid=12)를 반환하지 않는다.
-            #   따라서 이름 검색이 주(主) 수단이고 좌표는 검증용이다. (DEVELOPMENT_LOG 참고)
+            #   따라서 이름 검색이 주(主) 수단이고 좌표는 검증용이다.
             print("① 이름으로 검색 (searchKeyword) ← 주 매칭 수단")
             hits = await api.search_keyword(row.name, rows=3)
             for h in hits[:3]:
