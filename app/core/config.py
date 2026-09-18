@@ -92,14 +92,14 @@ class Settings(BaseSettings):
     #    확인된 오퍼레이션: galleryList1 · gallerySearchList1 · galleryDetailList1
     TOUR_PHOTO_API_BASE: str = "http://apis.data.go.kr/B551011/PhotoGalleryService1"
 
-    # ③ '한국관광공사_기초지자체 중심 관광지 정보' (data.go.kr/data/15128559) — ✅ 승인·동작 확인
-    #    지자체별로 '다른 관광지와 가장 많이 연결되는 중심 관광지'와 그 연관 관광지를 준다.
+    # ③ '한국관광공사_관광지별 연관 관광지 정보' (data.go.kr/data/15128560) — ✅ 승인·동작 확인
+    #    지자체별 중심 관광지와 연관 관광지 목록을 준다.
     #    TarRlteTarService2는 400 → Service**1** + areaBasedList1이 맞다.
     #    ⚠️ 코드 체계가 다르다 — areaCd/signguCd는 TourAPI 지역코드가 아니라 **법정동 코드**다
     #       (강원특별자치도=51, 강릉시=51150). regions 테이블 채우기 전엔 호출할 수 없다.
     TOUR_RLTE_API_BASE: str = "http://apis.data.go.kr/B551011/TarRlteTarService1"
-    # 이 서비스는 기준연월(baseYm)이 필수.
-    TOUR_RLTE_BASE_YM: str = "202609"
+    # 이 서비스는 기준연월(baseYm)이 필수. 공공데이터포털에 공개된 마지막 제공 월은 2025-04.
+    TOUR_RLTE_BASE_YM: str = "202504"
 
     # 공사 요구 식별자(모든 요청에 붙는다)
     TOUR_API_APP_NAME: str = "EveryTrip"
