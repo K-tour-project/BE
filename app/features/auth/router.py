@@ -18,6 +18,8 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import EmailStr, ValidationError
 
 from app.core.config import settings
 from app.deps import CurrentUser, DbSession
@@ -111,7 +113,9 @@ async def confirm_password_reset(body: PasswordResetRequest, db: DbSession):
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
 async def signup(
     db: DbSession,
-    body: Annotated[SignupRequest, Form()],
+    email: Annotated[EmailStr, Form()],
+    password: Annotated[str, Form(min_length=8, max_length=72)],
+    nickname: Annotated[str, Form(min_length=2, max_length=20)],
     profile_image: Annotated[UploadFile | None, File()] = None,
 ):
     """multipart/form-data 회원가입. 프로필 이미지는 실제 파일로 받는다.
@@ -122,6 +126,16 @@ async def signup(
     - `413` 프로필 이미지가 5MB를 초과함
     - `415` 프로필 이미지가 JPEG·PNG·WebP가 아님
     """
+    try:
+        body = SignupRequest(email=email, password=password, nickname=nickname)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {**error, "loc": ("body", *error["loc"])}
+                for error in exc.errors(include_context=False)
+            ]
+        ) from exc
+
     image: tuple[bytes, str, str] | None = None
     if profile_image is not None:
         try:

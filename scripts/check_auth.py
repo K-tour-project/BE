@@ -80,7 +80,7 @@ def main() -> int:
 
         r = c.post(
             "/auth/signup",
-            json={"email": email, "password": password, "nickname": nickname},
+            data={"email": email, "password": password, "nickname": nickname},
         )
         check("인증 전 회원가입은 403", r.status_code == 403, f"{r.status_code}")
 
@@ -91,19 +91,19 @@ def main() -> int:
         print("\n② 회원가입")
         r = c.post(
             "/auth/signup",
-            json={"email": email, "password": "short1", "nickname": nickname},
+            data={"email": email, "password": "short1", "nickname": nickname},
         )
         check("8자 미만 비밀번호는 422", r.status_code == 422, f"{r.status_code}")
 
         r = c.post(
             "/auth/signup",
-            json={"email": email, "password": "abcdefghij", "nickname": nickname},
+            data={"email": email, "password": "abcdefghij", "nickname": nickname},
         )
         check("숫자 없는 비밀번호는 422", r.status_code == 422, f"{r.status_code}")
 
         r = c.post(
             "/auth/signup",
-            json={"email": email, "password": password, "nickname": nickname},
+            data={"email": email, "password": password, "nickname": nickname},
         )
         check("회원가입 201", r.status_code == 201, f"{r.status_code} {r.text[:120]}")
         if r.status_code != 201:
@@ -127,7 +127,7 @@ def main() -> int:
 
         # ── ③ 로그인 ───────────────────────────────────────────────────
         print("\n③ 로그인")
-        r = c.post("/auth/signup", json={"email": email, "password": password, "nickname": nickname})
+        r = c.post("/auth/signup", data={"email": email, "password": password, "nickname": nickname})
         check("같은 이메일 재가입은 409", r.status_code == 409, f"{r.status_code}")
 
         r = c.post(
