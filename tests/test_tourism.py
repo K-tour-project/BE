@@ -80,7 +80,7 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(matches(row, place))
         place.lat = 35.0
         self.assertFalse(matches(row, place))
-        # 저장된 TourAPI ID에는 의존하지 않고 매 요청 좌표와 이름으로 판정한다.
+        # 저장된 TourAPI ID가 있어도 먼 장소는 동일 장소로 취급하지 않는다.
         place.tour_content_id = "123"
         self.assertFalse(matches(row, place))
         place.tour_content_id = "456"
@@ -107,6 +107,11 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
             address=None,
         )
         self.assertFalse(matches(row, place))
+
+    def test_verified_tour_id_handles_title_change_with_nearby_coordinates(self):
+        row = dict(contentid="123", title="새 이름", mapy="37.5", mapx="127.0")
+        place = SimpleNamespace(tour_content_id="123", name="옛 이름", lat=37.5001, lng=127.0, address=None)
+        self.assertTrue(matches(row, place))
 
     async def test_client_total_and_image_pagination(self):
         requests = []
@@ -204,11 +209,13 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         candidate = SimpleNamespace(
             place_id=7,
             name="공원",
+            tour_content_id=None,
             address=None,
             lat=37.5,
             lng=127.0,
         )
         db.execute.return_value = SimpleNamespace(all=lambda: [candidate])
+        db.scalar.return_value = "종로구"
         api = AsyncMock()
         api.__aenter__.return_value = api
         api.calls = []
@@ -293,6 +300,21 @@ class TourismTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0].detail_path, "/tourism-places/101")
         self.assertEqual(result[0].sido_name, "서울특별시")
         api.related_spots.assert_awaited_once_with("11", "11110", rows=1000)
+
+    async def test_related_places_include_reverse_links_and_reject_wrong_region(self):
+        api = AsyncMock()
+        api.related_spots.return_value = [
+            {"tAtsNm": "현재 공원", "rlteTatsNm": "직접 장소", "rlteRegnNm": "서울특별시", "rlteSignguNm": "종로구", "rlteRank": "1"},
+            {"tAtsNm": "역방향 장소", "rlteTatsNm": "현재 공원", "areaNm": "서울특별시", "signguNm": "종로구", "rlteRank": "2"},
+        ]
+        api.search_keyword.side_effect = [
+            [{"contentid": "wrong", "title": "직접 장소", "addr1": "부산광역시 중구"},
+             {"contentid": "101", "title": "직접 장소", "addr1": "서울특별시 종로구"}],
+            [{"contentid": "102", "title": "역방향 장소", "addr1": "서울특별시 종로구"}],
+        ]
+        row = SimpleNamespace(name="현재 공원", region_bjd_cd="1111000000")
+        result = await _related_tourism_places(api, {"title": "현재 공원"}, row)
+        self.assertEqual([item.content_id for item in result], ["101", "102"])
 
 
 if __name__ == "__main__":

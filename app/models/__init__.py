@@ -10,6 +10,7 @@ from app.models.course import Course, CoursePlace
 from app.models.favorite import PlaceFavorite, ProductFavorite
 from app.models.place import Place
 from app.models.product import Product
+from app.models.product_place import ProductPlace
 from app.models.product_detail import DramaDetail, MovieDetail
 from app.models.region import Region
 from app.models.user import User
@@ -29,6 +30,7 @@ __all__ = [
     "Region",
     "Place",
     "Product",
+    "ProductPlace",
     "MovieDetail",
     "DramaDetail",
     "Course",

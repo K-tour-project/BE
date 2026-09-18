@@ -424,7 +424,7 @@ profile_image=(선택 이미지 파일)
   ]
 }
 ```
-- `filming_locations`는 TourAPI 관광지와 매칭되어 `tour_content_id`가 확인된 해당 작품의 촬영지를 모두 반환한다.
+- `filming_locations`는 DB에서 해당 작품 ID와 연결된 촬영지를 반환한다. `tour_content_id`는 TourAPI 관광지와 매칭된 경우에만 제공하며, 매칭 전에는 `null`이다.
 - `related_products`는 공통 장르가 있는 작품을 별점 내림차순으로 최대 6개 반환한다. 동점이면 장르 유사도와 인기도 순으로 정렬한다.
 - 화면에서는 각 항목의 `detail_path`를 사용해 장소 또는 작품 상세로 이동한다.
 - 없는 `product_id`면 `404`. `tmdb_id`는 DB와 응답에서 제거했다.
@@ -696,11 +696,11 @@ uvicorn app.main:app --reload
 연결하여 지역명을 제공한다. 이미지는 없으면 null이고, 좌표가 없거나 유효하지
 않으면 `location=null`이므로 해당 항목은 목록에만 표시한다.
 
-`category`는 `촬영지` 또는 `관광지`다. `places.tour_content_id` 일치를 우선하고,
-연결 ID가 없는 데이터는 공백·문장부호를 제거한 장소명이 같고 좌표가 200m 이내인
-경우 촬영지로 분류한다. 좌표가 없는 경우에는 같은 이름과 동일 주소를 요구한다.
-이름 표기가 다르면 매칭되지 않을 수 있다. 한 촬영지에 CSV 행이 여러 개 있으면
-해당 `place_ids`를 모두 반환하며 관광지 목록 항목은 늘어나지 않는다.
+`category`는 `촬영지` 또는 `관광지`다. 작품 ID와 명시적으로 연결된 DB 장소만
+촬영지 후보로 사용한다. TourAPI `content_id`와 연결된 장소는 좌표를 확인하고,
+연결 ID가 없다면 이름 유사도와 좌표를 함께 검사한다. 좌표가 없는 경우에는 같은
+이름과 동일 주소를 요구한다. 한 관광지에 연결된 DB 장소가 여러 개이면 해당
+`place_ids`를 모두 반환하며 관광지 목록 항목은 늘어나지 않는다.
 
 `GET /tourism-places/{content_id}`
 

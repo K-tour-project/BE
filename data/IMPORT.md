@@ -85,4 +85,14 @@ places.title/name/address/latitude/longitude/source_url/source/location_source�
 좌표는 DB의 소수점 7자리로 맞추고 geom도 갱신한다. 위치 변경 시 region_id와 TourAPI 매칭은
 초기화하여 예전 위치의 연결이 노출되지 않게 한다. 재매칭은 별도 작업이다.
 
+## 작품과 촬영지 관계
+
+`product_places(product_id, place_id)`가 촬영 관계의 기준이다. 마이그레이션은
+제목이 유일한 작품의 장소를 ID로 연결한다. 같은 제목에 영화와 드라마가 모두 있으면
+출처에 `한국영상자료원` 또는 `한국영화자료원`이 포함된 장소는 영화, 나머지는 드라마와
+연결한다. 해당 종류의 후보 작품이 정확히 하나일 때만 자동 연결한다. 같은 제목의
+영화가 여러 개면 출처만으로 구분할 수 없어 원본 촬영 자료를 확인해야 한다.
+이후 CSV import도 같은 규칙으로 새 행을 연결하며, 장소 제목이 바뀌면 오래된 관계를 제거한다.
+`places.tour_content_id`는 TourAPI 관광지 식별용이며 이 관계와 독립적이다.
+
 검증: `python -m unittest discover -s tests`. dry-run은 DB 연결 없이 CSV만 검증한다.

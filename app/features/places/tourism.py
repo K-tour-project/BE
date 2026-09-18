@@ -23,7 +23,7 @@ from app.features.places.service import (
 from app.features.places.schema import RelatedTourismPlace
 from app.integrations.call_log import save_calls
 from app.integrations.tour_api import TourApiClient, TourApiError, intro_details
-from app.models import Place, Region
+from app.models import Place, ProductPlace, Region
 from app.shared.schema import Location
 
 router = APIRouter(tags=["tourism"])
@@ -86,14 +86,16 @@ def location(row):
 def matches(row, place, region_name=None):
     """요청 중인 TourAPI 관광지와 DB 촬영지가 같은 장소인지 판정한다.
 
-    TourAPI content ID나 응답은 저장하지 않는다. 좌표로 먼저 후보를 제한하고,
-    가까울수록 이름 표기 차이를 더 넓게 허용한다.
+    검증된 TourAPI ID와 좌표를 우선 사용한다. 연결 ID가 없으면 좌표와
+    이름 유사도로 판정하며, 가까울수록 표기 차이를 더 넓게 허용한다.
     """
     point = location(row)
     if point is not None and place.lat is not None and place.lng is not None:
         distance = distance_m(point.lat, point.lng, float(place.lat), float(place.lng))
         if distance > 1_000:
             return False
+        if row.get("contentid") and str(getattr(place, "tour_content_id", "") or "") == str(row["contentid"]):
+            return True
         similarity = title_similarity(
             str(row.get("title") or ""),
             name_variants(str(place.name or ""), region_name),
@@ -103,6 +105,9 @@ def matches(row, place, region_name=None):
             or (distance <= 500 and similarity >= 0.75)
             or similarity >= 0.85
         )
+
+    if row.get("contentid") and str(getattr(place, "tour_content_id", "") or "") == str(row["contentid"]):
+        return True
 
     # 좌표가 없는 데이터는 오탐을 막기 위해 기존의 엄격한 기준을 유지한다.
     if not normalize(place.name) or normalize(place.name) != normalize(row.get("title")):
@@ -208,7 +213,7 @@ async def list_tourism(db, region_id, page, size):
         lat_expr = func.coalesce(Place.latitude, func.ST_Y(cast(Place.geom, Geometry)))
         lng_expr = func.coalesce(Place.longitude, func.ST_X(cast(Place.geom, Geometry)))
         bounds = candidate_bounds(rows)
-        filters = []
+        filters = [Place.tour_content_id.in_([str(row["contentid"]) for row in rows if row.get("contentid")])]
         if bounds is not None:
             min_lat, max_lat, min_lng, max_lng = bounds
             filters.append(lat_expr.between(min_lat, max_lat) & lng_expr.between(min_lng, max_lng))
@@ -216,23 +221,26 @@ async def list_tourism(db, region_id, page, size):
         if titles:
             filters.append(func.lower(func.regexp_replace(Place.name, "[^[:alnum:]]", "", "g")).in_(titles))
         candidates = (await db.execute(select(
-            Place.place_id, Place.name, Place.address,
+            Place.place_id, Place.name, Place.address, Place.tour_content_id,
             lat_expr.label("lat"), lng_expr.label("lng"),
-        ).where(or_(*filters)))).all() if rows and filters else []
+        ).where(or_(*filters)).where(
+            select(ProductPlace.place_id).where(ProductPlace.place_id == Place.place_id).exists()
+        ))).all() if rows else []
         items = []
         for row in rows:
-            matched = sorted({
-                p.place_id for p in candidates
-                if matches(row, p, getattr(region, "name", None))
-            })
             sc = str(row.get("lDongRegnCd") or sido)
             gc = str(row.get("lDongSignguCd") or sigungu or "") or None
+            district_code = gc if gc and len(gc) == 5 else sc + gc if gc else ""
+            matched = sorted({
+                p.place_id for p in candidates
+                if matches(row, p, sigungu_names.get(district_code) or getattr(region, "name", None))
+            })
             items.append(TourismPlace(
                 content_id=str(row["contentid"]), name=row["title"],
                 image_url=row.get("firstimage") or None,
                 thumbnail_url=row.get("firstimage2") or row.get("firstimage") or None,
                 location=location(row), sido_code=sc, sigungu_code=gc,
-                sido_name=sido_names.get(sc), sigungu_name=sigungu_names.get(sc + gc) if gc else None,
+                sido_name=sido_names.get(sc), sigungu_name=sigungu_names.get(district_code) if gc else None,
                 category="촬영지" if matched else "관광지", place_ids=matched,
             ))
         return TourismPage(items=items, total=total, count=len(items), page=page, size=size, has_next=page*size < total)
@@ -282,18 +290,32 @@ async def tourism_detail(db, content_id):
             filters.append(
                 lat_expr.between(min_lat, max_lat) & lng_expr.between(min_lng, max_lng)
             )
+        normalized_title = normalize(common.get("title"))
+        if normalized_title:
+            filters.append(
+                func.lower(func.regexp_replace(Place.name, "[^[:alnum:]]", "", "g")) == normalized_title
+            )
         candidates = (
             await db.execute(
                 select(
                     Place.place_id,
                     Place.name,
                     Place.address,
+                    Place.tour_content_id,
                     lat_expr.label("lat"),
                     lng_expr.label("lng"),
-                ).where(or_(*filters))
+                ).where(or_(*filters)).where(
+                    select(ProductPlace.place_id).where(ProductPlace.place_id == Place.place_id).exists()
+                )
             )
         ).all()
-        matched_ids = [p.place_id for p in candidates if matches(common, p)]
+        area_code = str(common.get("lDongRegnCd") or "")
+        district_code = str(common.get("lDongSignguCd") or "")
+        region_code = region_bjd_cd or (
+            district_code if len(district_code) == 5 else area_code + district_code
+        )
+        region_name = await db.scalar(select(Region.name).where(Region.bjd_cd.startswith(region_code)).limit(1)) if region_code else None
+        matched_ids = [p.place_id for p in candidates if matches({**common, "contentid": content_id}, p, region_name)]
         by_place = await _contents_by_place(db, matched_ids)
         contents = []
         seen_content_ids = set()

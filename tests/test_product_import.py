@@ -1,4 +1,5 @@
 import csv
+import sqlite3
 import tempfile
 import unittest
 from datetime import date
@@ -78,6 +79,34 @@ class CsvTests(unittest.TestCase):
         self.assertEqual(str(result[0]["latitude"]), "37.1234568")
         self.assertNotIn("place_type", result[0])
         self.assertIsNone(result[0]["source_url"])
+
+    def test_source_rule_links_only_one_matching_work(self):
+        db = sqlite3.connect(":memory:")
+        try:
+            db.executescript("""
+                CREATE TABLE products (product_id INTEGER PRIMARY KEY, title TEXT, category TEXT);
+                CREATE TABLE places (place_id INTEGER PRIMARY KEY, title TEXT, source TEXT, csv_row_hash TEXT);
+                CREATE TABLE product_places (product_id INTEGER, place_id INTEGER PRIMARY KEY);
+            """)
+            db.executemany("INSERT INTO products VALUES (?, ?, ?)", [
+                (1, "Shared", "MOVIE"), (2, "Shared", "DRAMA"),
+                (3, "TwoMovies", "MOVIE"), (4, "TwoMovies", "MOVIE"),
+            ])
+            db.executemany("INSERT INTO places VALUES (?, ?, ?, ?)", [
+                (10, "Shared", "한국영상자료원", "a"),
+                (11, "Shared", "KCISA", "b"),
+                (12, "Shared", "한국영화자료원", "c"),
+                (13, "TwoMovies", "한국영상자료원", "d"),
+            ])
+            db.execute(seed.SOURCE_LINK_SQL)
+            self.assertEqual(
+                db.execute("SELECT place_id, product_id FROM product_places ORDER BY place_id").fetchall(),
+                [(10, 1), (11, 2), (12, 1)],
+            )
+            db.execute(seed.SOURCE_LINK_SQL)
+            self.assertEqual(db.execute("SELECT count(*) FROM product_places").fetchone()[0], 3)
+        finally:
+            db.close()
 
 
 class ImportTests(unittest.IsolatedAsyncioTestCase):

@@ -41,7 +41,7 @@ from app.integrations.tour_api import (
     TourApiKeyMissing,
     intro_details,
 )
-from app.models import Place, Product, Region
+from app.models import Place, Product, ProductPlace, Region
 from app.shared.schema import Location
 
 logger = logging.getLogger(__name__)
@@ -76,29 +76,27 @@ def _place_select():
 async def _contents_by_place(
     db: AsyncSession, place_ids: list[int], content_id: int | None = None
 ) -> dict[int, list[ContentOnPlace]]:
-    """같은 장소명의 작품을 연결하고 products.category를 그대로 반환한다."""
+    """Return products connected to each exact place ID."""
     if not place_ids:
         return {}
-    anchors = (await db.execute(select(Place.place_id, Place.name).where(Place.place_id.in_(place_ids)))).all()
-    names = {r.name for r in anchors}
     stmt = (
         select(
-            Place.name,
+            ProductPlace.place_id,
             Product.product_id,
             Product.title,
             Product.category,
             Product.poster_url,
         )
-        .join(Product, Product.title == Place.title)
-        .where(Place.name.in_(names))
-        .distinct()
-        .order_by(Product.product_id)
+        .select_from(ProductPlace)
+        .join(Product, Product.product_id == ProductPlace.product_id)
+        .where(ProductPlace.place_id.in_(place_ids))
+        .order_by(ProductPlace.place_id, Product.product_id)
     )
     if content_id is not None:
         stmt = stmt.where(Product.product_id == content_id)
-    products_by_name: dict[str, list[ContentOnPlace]] = {}
+    out: dict[int, list[ContentOnPlace]] = {place_id: [] for place_id in place_ids}
     for r in (await db.execute(stmt)).all():
-        products_by_name.setdefault(r.name, []).append(
+        out[r.place_id].append(
             ContentOnPlace(
                 product_id=r.product_id,
                 title=r.title,
@@ -107,9 +105,6 @@ async def _contents_by_place(
                 detail_path=f"/contents/{r.product_id}",
             )
         )
-    out: dict[int, list[ContentOnPlace]] = {}
-    for anchor in anchors:
-        out[anchor.place_id] = products_by_name.get(anchor.name, [])
     return out
 
 
@@ -142,41 +137,34 @@ async def _related_tourism_places(
     # 뒤쪽에 있어도 "연관 관광지 없음"으로 오판하므로 API 허용 범위 내에서 넉넉히 조회한다.
     rows = await api.related_spots(area_cd, signgu_cd, rows=1000)
     title = str(common.get("title") or row.name or "")
-    direct = [
-        item for item in rows
-        if title_similarity(str(item.get("tAtsNm") or ""), [title]) >= 0.75
+    # A place can appear on either side of the relation, sometimes in the same region.
+    candidates = [
+        (item, reverse)
+        for item in rows
+        for reverse, current_key in ((False, "tAtsNm"), (True, "rlteTatsNm"))
+        if title_similarity(str(item.get(current_key) or ""), [title]) >= 0.75
     ]
-
-    # 현재 장소가 중심관광지가 아니라 연관관광지 쪽에만 있으면 중심관광지를 역으로 제안한다.
-    candidates = direct
-    reverse = False
-    if not candidates:
-        candidates = [
-            item for item in rows
-            if title_similarity(str(item.get("rlteTatsNm") or ""), [title]) >= 0.75
-        ]
-        reverse = True
-
-    candidates.sort(key=lambda item: int(item.get("rlteRank") or 999999))
-    unique: list[dict] = []
+    candidates.sort(key=lambda pair: (int(pair[0].get("rlteRank") or 999999), pair[1]))
+    unique: list[tuple[dict, bool]] = []
     seen: set[str] = set()
-    for item in candidates:
+    for item, reverse in candidates:
         name_key = "tAtsNm" if reverse else "rlteTatsNm"
         name = str(item.get(name_key) or "").strip()
-        if not name or name in seen:
+        if not name or name.casefold() in seen:
             continue
-        seen.add(name)
-        unique.append(item)
+        seen.add(name.casefold())
+        unique.append((item, reverse))
         # 일부 항목은 TourAPI 상세 ID로 연결되지 않을 수 있어 여유 있게 조회한다.
         if len(unique) >= limit * 2:
             break
 
     searches = await asyncio.gather(
-        *(api.search_keyword(str(item.get("tAtsNm" if reverse else "rlteTatsNm") or ""), rows=5) for item in unique),
+        *(api.search_keyword(str(item.get("tAtsNm" if reverse else "rlteTatsNm") or ""), rows=5) for item, reverse in unique),
         return_exceptions=True,
     )
     resolved: list[RelatedTourismPlace] = []
-    for item, hits in zip(unique, searches):
+    resolved_ids: set[str] = set()
+    for (item, reverse), hits in zip(unique, searches):
         if isinstance(hits, Exception):
             continue
         name_key = "tAtsNm" if reverse else "rlteTatsNm"
@@ -184,15 +172,24 @@ async def _related_tourism_places(
         sido_key = "areaNm" if reverse else "rlteRegnNm"
         sigungu_key = "signguNm" if reverse else "rlteSignguNm"
         name = str(item.get(name_key) or "")
+        expected_sido = str(item.get(sido_key) or "").strip()
+        expected_sigungu = str(item.get(sigungu_key) or "").strip()
+        def valid_region(hit: dict) -> bool:
+            address = str(hit.get("addr1") or "").strip()
+            return not address or (
+                (not expected_sido or expected_sido in address)
+                and (not expected_sigungu or expected_sigungu in address)
+            )
         ranked = sorted(
             hits,
-            key=lambda hit: title_similarity(str(hit.get("title") or ""), [name]),
+            key=lambda hit: (valid_region(hit), title_similarity(str(hit.get("title") or ""), [name])),
             reverse=True,
         )
         hit = next(
             (
                 candidate for candidate in ranked
                 if candidate.get("contentid")
+                and valid_region(candidate)
                 and title_similarity(str(candidate.get("title") or ""), [name]) >= 0.75
             ),
             None,
@@ -200,6 +197,9 @@ async def _related_tourism_places(
         if hit is None:
             continue
         content_id = str(hit["contentid"])
+        if content_id in resolved_ids:
+            continue
+        resolved_ids.add(content_id)
         resolved.append(
             RelatedTourismPlace(
                 related_id=str(item.get(id_key) or ""),

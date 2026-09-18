@@ -19,18 +19,18 @@ from app.features.products.schema import (
     FilmingLocationSummary,
     RelatedProductSummary,
 )
-from app.models import Place, Product, Region
+from app.models import Place, Product, ProductPlace, Region
 
 
 RELATED_PRODUCT_LIMIT = 6
 
 
 def _place_count_sq():
-    """products.title과 연결된 places 행 수."""
+    """Explicitly linked filming places for a product."""
     return (
         select(func.count())
-        .select_from(Place)
-        .where(Place.title == Product.title)
+        .select_from(ProductPlace)
+        .where(ProductPlace.product_id == Product.product_id)
         .scalar_subquery()
     )
 
@@ -132,7 +132,7 @@ async def get_product(db: AsyncSession, product_id: int) -> ProductDetail | None
         return None
     product, place_count = row
 
-    filming_locations, filming_location_count = await _filming_locations(db, product.title)
+    filming_locations, filming_location_count = await _filming_locations(db, product.product_id)
     related_products = await _related_products(db, product, RELATED_PRODUCT_LIMIT)
     common = dict(
         product_id=product.product_id,
@@ -213,12 +213,11 @@ async def _related_products(
 
 
 async def _filming_locations(
-    db: AsyncSession, title: str
+    db: AsyncSession, product_id: int
 ) -> tuple[list[FilmingLocationSummary], int]:
-    """TourAPI content ID가 확인된 촬영지만 상세 화면에 노출한다."""
+    """Return all places explicitly linked to the product."""
     parent = aliased(Region)
-    where = (Place.title == title, Place.tour_content_id.is_not(None))
-    total = await db.scalar(select(func.count()).select_from(Place).where(*where))
+    total = await db.scalar(select(func.count()).select_from(ProductPlace).where(ProductPlace.product_id == product_id))
     rows = (
         await db.execute(
             select(
@@ -228,10 +227,11 @@ async def _filming_locations(
                 Region.name.label("region_name"),
                 parent.name.label("parent_name"),
             )
-            .select_from(Place)
+            .select_from(ProductPlace)
+            .join(Place, Place.place_id == ProductPlace.place_id)
             .outerjoin(Region, Region.region_id == Place.region_id)
             .outerjoin(parent, parent.region_id == Region.parent_id)
-            .where(*where)
+            .where(ProductPlace.product_id == product_id)
             .order_by(Place.name, Place.place_id)
         )
     ).all()

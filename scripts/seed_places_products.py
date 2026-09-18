@@ -36,6 +36,26 @@ DRAMA_COLUMNS = {
     "작품유형": "content_type", "networks": "networks", "에피소드수": "episode_count", "주연배우": "cast",
 }
 
+SOURCE_LINK_SQL = """
+    INSERT INTO product_places (product_id, place_id)
+    SELECT product.product_id, place.place_id
+    FROM places place
+    JOIN products product ON product.title = place.title
+    WHERE place.csv_row_hash IS NOT NULL
+      AND product.category = CASE
+          WHEN place.source LIKE '%한국영상자료원%'
+            OR place.source LIKE '%한국영화자료원%' THEN 'MOVIE'
+          ELSE 'DRAMA'
+      END
+      AND (SELECT count(*) FROM products candidate
+           WHERE candidate.title = place.title
+             AND candidate.category = product.category) = 1
+      AND NOT EXISTS (
+          SELECT 1 FROM product_places existing WHERE existing.place_id = place.place_id
+      )
+    ON CONFLICT DO NOTHING
+"""
+
 
 def row_hash(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
@@ -235,6 +255,30 @@ async def prune_missing_csv_rows(session, movies, dramas, places, only=None):
         print(f"Pruned CSV-managed places: {len(place_ids)}")
 
 
+async def sync_product_places(session):
+    """Link filming rows by title, then source when a title spans movie and drama."""
+    await session.execute(text("""
+        DELETE FROM product_places link
+        USING places place, products product
+        WHERE link.place_id = place.place_id
+          AND link.product_id = product.product_id
+          AND place.csv_row_hash IS NOT NULL
+          AND product.title IS DISTINCT FROM place.title
+    """))
+    unique = await session.execute(text("""
+        INSERT INTO product_places (product_id, place_id)
+        SELECT min(product.product_id), place.place_id
+        FROM places place
+        JOIN products product ON product.title = place.title
+        WHERE place.csv_row_hash IS NOT NULL
+          AND (SELECT count(*) FROM products candidate WHERE candidate.title = place.title) = 1
+        GROUP BY place.place_id
+        ON CONFLICT DO NOTHING
+    """))
+    by_source = await session.execute(text(SOURCE_LINK_SQL))
+    print(f"Product-place links inserted: {unique.rowcount + by_source.rowcount}")
+
+
 async def seed(dry_run=False, only=None, prune=False):
     movies = load_rows("products_movie.csv", MOVIE_COLUMNS) if only != "places" else []
     dramas = load_rows("products_drama.csv", DRAMA_COLUMNS) if only != "places" else []
@@ -250,6 +294,7 @@ async def seed(dry_run=False, only=None, prune=False):
             await import_places(session, places)
             if prune:
                 await prune_missing_csv_rows(session, movies, dramas, places, only)
+            await sync_product_places(session)
         print("Commit complete" + ("" if prune else " (no rows deleted)"))
     finally:
         await engine.dispose()

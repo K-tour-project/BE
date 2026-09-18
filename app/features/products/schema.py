@@ -58,10 +58,10 @@ class ContentOnPlace(BaseModel):
 
 
 class FilmingLocationSummary(BaseModel):
-    """TourAPI 관광지와 매칭된 작품 촬영지."""
+    """DB에서 작품과 연결된 촬영지. TourAPI ID는 확인된 경우에만 제공한다."""
 
     place_id: int
-    tour_content_id: str
+    tour_content_id: str | None = None
     name: str
     sido_name: str | None = None
     sigungu_name: str | None = None
